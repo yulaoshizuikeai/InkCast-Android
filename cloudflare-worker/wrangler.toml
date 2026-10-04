@@ -1,0 +1,8 @@
+name = "inkcast-proxy"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Deployed to: https://inkcast-proxy.harlan0804.workers.dev
+[observability]
+enabled = true

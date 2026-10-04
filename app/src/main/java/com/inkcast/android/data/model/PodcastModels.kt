@@ -47,7 +47,8 @@ data class Episode(
     val audioUrl: String,
     val pubDate: String,
     val durationSeconds: Long,
-    val durationFormatted: String
+    val durationFormatted: String,
+    val imageUrl: String = ""
 ) {
     fun toJson(): JSONObject {
         return JSONObject().apply {
@@ -59,6 +60,7 @@ data class Episode(
             put("pubDate", pubDate)
             put("durationSeconds", durationSeconds)
             put("durationFormatted", durationFormatted)
+            put("imageUrl", imageUrl)
         }
     }
 
@@ -72,7 +74,8 @@ data class Episode(
                 audioUrl = json.optString("audioUrl", ""),
                 pubDate = json.optString("pubDate", ""),
                 durationSeconds = json.optLong("durationSeconds", 0L),
-                durationFormatted = json.optString("durationFormatted", "--:--")
+                durationFormatted = json.optString("durationFormatted", "--:--"),
+                imageUrl = json.optString("imageUrl", "")
             )
         }
     }

@@ -23,11 +23,30 @@ class PreferencesManager(context: Context) {
 
         val PRESET_FEEDS = listOf(
             PodcastFeed(
+                id = "preset_sheng_fm",
+                title = "声动早咖啡",
+                description = "唤醒沉睡的身体，每个工作日早晨的轻快早餐，带来全球商业前沿与科技商业动态。",
+                feedUrl = "https://feed.shengfm.cn/shengfm.xml",
+                originalInput = "声动早咖啡",
+                artworkUrl = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/v4/4a/1d/a5/4a1da54e-4f1d-f89a-07f1-7917dcabec6a/mza_14569502931448834789.jpg/600x600bb.jpg",
+                author = "声动活泼"
+            ),
+            PodcastFeed(
+                id = "preset_left_right",
+                title = "忽左忽右",
+                description = "一档文化沙龙类播客节目，由杨一和程衍樑主持，探索大历史背后的具体故事。",
+                feedUrl = "https://feed.justpodfm.com/leftright.xml",
+                originalInput = "忽左忽右",
+                artworkUrl = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts126/v4/57/ff/ae/57ffae55-7f91-adfe-b34b-e5621f6a4f75/mza_14365442965271077171.png/600x600bb.jpg",
+                author = "JustPod"
+            ),
+            PodcastFeed(
                 id = "preset_npr_up_first",
                 title = "NPR: Up First",
                 description = "NPR's Up First is the news you need to start your day. The biggest stories and ideas, in 10-15 minutes.",
                 feedUrl = "https://feeds.npr.org/510318/podcast.xml",
                 originalInput = "https://feeds.npr.org/510318/podcast.xml",
+                artworkUrl = "https://media.npr.org/assets/img/2022/11/04/upfirst_square-252199b4d89a71060938ff56bc55a01946fe7e1c.jpg",
                 author = "NPR"
             ),
             PodcastFeed(
@@ -36,23 +55,8 @@ class PreferencesManager(context: Context) {
                 description = "Learn and practise useful English language for everyday situations with BBC Learning English.",
                 feedUrl = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/640x640/p09s28cr.jpg",
                 author = "BBC Radio"
-            ),
-            PodcastFeed(
-                id = "preset_left_right",
-                title = "忽左忽右",
-                description = "一档文化沙龙类播客节目，由杨一和程衍樑主持，探索大历史背后的具体故事。",
-                feedUrl = "https://feed.justpodfm.com/leftright.xml",
-                originalInput = "忽左忽右",
-                author = "JustPod"
-            ),
-            PodcastFeed(
-                id = "preset_sheng_fm",
-                title = "声动早咖啡",
-                description = "唤醒沉睡的身体，每个工作日早晨的轻快早餐，带来全球商业前沿与科技商业动态。",
-                feedUrl = "https://feed.shengfm.cn/shengfm.xml",
-                originalInput = "声动早咖啡",
-                author = "声动活泼"
             )
         )
     }
