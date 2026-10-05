@@ -47,16 +47,20 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -93,6 +97,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -101,13 +106,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import androidx.core.content.ContextCompat
+import com.inkcast.android.R
 import com.inkcast.android.data.local.PreferencesManager
 import com.inkcast.android.data.model.AppSettings
 import com.inkcast.android.data.model.Episode
 import com.inkcast.android.data.model.PodcastFeed
 import com.inkcast.android.playback.PlaybackController
+import com.inkcast.android.playback.SleepTimerOption
 import com.inkcast.android.ui.components.FullPlayerBottomSheet
 import com.inkcast.android.ui.components.ModernAsyncImage
 import com.inkcast.android.ui.components.ModernEpisodeRow
@@ -129,6 +136,22 @@ fun formatTime(ms: Long, forceHours: Boolean = false): String {
         String.format("%02d:%02d:%02d", h, m, s)
     } else {
         String.format("%02d:%02d", m, s)
+    }
+}
+
+/**
+ * Format raw byte count into human-readable B, KB, MB, GB.
+ */
+fun formatBytes(bytes: Long): String {
+    if (bytes <= 0L) return "0 B"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    val gb = mb / 1024.0
+    return when {
+        gb >= 1.0 -> String.format(java.util.Locale.US, "%.2f GB", gb)
+        mb >= 1.0 -> String.format(java.util.Locale.US, "%.1f MB", mb)
+        kb >= 1.0 -> String.format(java.util.Locale.US, "%.1f KB", kb)
+        else -> "$bytes B"
     }
 }
 
@@ -213,6 +236,10 @@ fun ModernInkCastApp(
     val currentPlayingEpisode by playbackController.currentEpisode.collectAsState()
     val playbackSpeed by playbackController.playbackSpeed.collectAsState()
 
+    val playingFeed = remember(currentPlayingEpisode?.feedId, uiState.subscribedFeeds) {
+        uiState.subscribedFeeds.find { it.id == currentPlayingEpisode?.feedId } ?: uiState.selectedFeed
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uiState.errorMessage) {
@@ -235,6 +262,8 @@ fun ModernInkCastApp(
     val onSeekForward30 = remember(playbackController) { { playbackController.seekForward30() } }
     val onCycleSpeed = remember(playbackController) { { playbackController.cyclePlaybackSpeed() } }
 
+    val sleepTimerState by playbackController.sleepTimerState.collectAsState()
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -256,10 +285,14 @@ fun ModernInkCastApp(
                     feed = selectedFeed,
                     episodes = uiState.allEpisodes,
                     isLoading = uiState.isLoading,
+                    isOfflineCache = uiState.isOfflineCacheLoaded,
+                    cachedEpisodeIds = uiState.cachedEpisodeIds,
+                    cachingProgressMap = uiState.cachingProgressMap,
                     currentPlayingEpisode = currentPlayingEpisode,
                     isPlaying = isPlaying,
                     getProgressForEpisode = remember(viewModel) { { viewModel.getProgressForEpisode(it) } },
                     onPlayEpisode = remember(playbackController) { { playbackController.playEpisode(it) } },
+                    onCacheEpisode = remember(viewModel) { { viewModel.cacheEpisode(it) } },
                     onRefresh = remember(viewModel) { { viewModel.refreshCurrentFeed() } },
                     onBack = remember(viewModel) { { viewModel.closePodcastDetail() } },
                     onUnsubscribe = remember(viewModel, selectedFeed.id) { { viewModel.removeFeed(selectedFeed.id) } }
@@ -288,7 +321,15 @@ fun ModernInkCastApp(
                     NavigationTab.SETTINGS -> {
                         ModernSettingsTab(
                             settings = uiState.settings,
-                            onSaveSettings = { viewModel.saveSettings(it) }
+                            audioCacheSize = uiState.audioCacheSizeBytes,
+                            feedCacheSize = uiState.feedCacheSizeBytes,
+                            imageCacheSize = uiState.imageCacheSizeBytes,
+                            sleepTimerState = sleepTimerState,
+                            onSaveSettings = { viewModel.saveSettings(it) },
+                            onClearAudioCache = { viewModel.clearAudioCache() },
+                            onClearAllCaches = { viewModel.clearAllCaches() },
+                            onSetSleepTimer = { playbackController.setSleepTimer(it) },
+                            onCancelSleepTimer = { playbackController.cancelSleepTimer() }
                         )
                     }
                 }
@@ -303,7 +344,7 @@ fun ModernInkCastApp(
                 // Persistent Floating MiniPlayer docked above NavigationBar
                 ModernMiniPlayer(
                     episode = currentPlayingEpisode,
-                    feedTitle = uiState.selectedFeed?.title.orEmpty(),
+                    feedTitle = playingFeed?.title.orEmpty(),
                     isPlaying = isPlaying,
                     playbackController = playbackController,
                     onTogglePlayPause = onTogglePlayPause,
@@ -339,12 +380,19 @@ fun ModernInkCastApp(
 
     // Full Player ModalBottomSheet
     if (uiState.isPlayerSheetExpanded && currentPlayingEpisode != null) {
+        val isEpisodeCached = currentPlayingEpisode?.let { ep ->
+            ep.id in uiState.cachedEpisodeIds
+        } ?: false
+        val episodeCachingProgress = currentPlayingEpisode?.let { uiState.cachingProgressMap[it.id] }
         FullPlayerBottomSheet(
             episode = currentPlayingEpisode,
-            feed = uiState.selectedFeed,
+            feed = playingFeed,
             isPlaying = isPlaying,
             playbackController = playbackController,
             playbackSpeed = playbackSpeed,
+            isCached = isEpisodeCached,
+            cachingProgress = episodeCachingProgress,
+            onCacheClick = currentPlayingEpisode?.let { ep -> { viewModel.cacheEpisode(ep) } },
             onDismissRequest = onClosePlayerSheet,
             onTogglePlayPause = onTogglePlayPause,
             onSeekTo = onSeekTo,
@@ -799,7 +847,15 @@ fun ModernExploreTab(
 @Composable
 fun ModernSettingsTab(
     settings: AppSettings,
-    onSaveSettings: (AppSettings) -> Unit
+    audioCacheSize: Long = 0L,
+    feedCacheSize: Long = 0L,
+    imageCacheSize: Long = 0L,
+    sleepTimerState: com.inkcast.android.playback.SleepTimerState = com.inkcast.android.playback.SleepTimerState(),
+    onSaveSettings: (AppSettings) -> Unit,
+    onClearAudioCache: () -> Unit = {},
+    onClearAllCaches: () -> Unit = {},
+    onSetSleepTimer: (SleepTimerOption) -> Unit = {},
+    onCancelSleepTimer: () -> Unit = {}
 ) {
     var rsshubUrl by remember(settings) { mutableStateOf(settings.rsshubBaseUrl) }
     var cfProxyUrl by remember(settings) { mutableStateOf(settings.cfWorkerUrl) }
@@ -828,6 +884,184 @@ fun ModernSettingsTab(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+
+        // Sleep Timer Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Timer,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "定时关闭播放",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        if (sleepTimerState.isActive) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "剩余: ${sleepTimerState.formattedTime}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = if (sleepTimerState.isActive) "定时器正在运行，到达设定时间将自动暂停播放" else "设定倒计时或播完本集后自动停止播放，助您安心入睡",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Preset chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            SleepTimerOption.END_OF_EPISODE,
+                            SleepTimerOption.MINUTES_15,
+                            SleepTimerOption.MINUTES_30,
+                            SleepTimerOption.MINUTES_60
+                        ).forEach { opt ->
+                            val isSelected = sleepTimerState.isActive && sleepTimerState.selectedOption == opt
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (isSelected) onCancelSleepTimer() else onSetSleepTimer(opt)
+                                },
+                                label = { Text(opt.label) }
+                            )
+                        }
+                    }
+
+                    if (sleepTimerState.isActive) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = onCancelSleepTimer,
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("关闭定时器", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Cache Management Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Storage,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "播客缓存与存储管理",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "支持流式自动缓存与单集离线下载，大幅减少流量消耗与卡顿",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Cache Stats Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(text = "音频流与下载缓存", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text = formatBytes(audioCacheSize), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                        Column {
+                            Text(text = "离线单集数据", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text = formatBytes(feedCacheSize), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                        Column {
+                            Text(text = "封面图片缓存", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text = formatBytes(imageCacheSize), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                onClearAudioCache()
+                                Toast.makeText(context, "已清除播客音频缓存", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("清除音频缓存")
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        Button(
+                            onClick = {
+                                onClearAllCaches()
+                                Toast.makeText(context, "已清除全部播客与封面缓存", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("清除全部缓存")
+                        }
+                    }
+                }
+            }
         }
 
         // Appearance Card
@@ -1016,13 +1250,37 @@ fun ModernSettingsTab(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "关于 InkCast",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color.White
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_podflow_logo),
+                                contentDescription = "PodFlow Logo",
+                                modifier = Modifier
+                                    .padding(4.dp)
+                                    .fillMaxSize(),
+                                tint = Color.Unspecified
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column {
+                            Text(
+                                text = "PodFlow",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Modern Standalone RSS Podcast Player",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         text = "版本: 2.1.0 (Native Android 16 Edition)",
                         style = MaterialTheme.typography.bodyMedium,
@@ -1058,10 +1316,14 @@ fun ModernPodcastDetailScreen(
     feed: PodcastFeed,
     episodes: List<Episode>,
     isLoading: Boolean,
+    isOfflineCache: Boolean = false,
+    cachedEpisodeIds: Set<String> = emptySet(),
+    cachingProgressMap: Map<String, Int> = emptyMap(),
     currentPlayingEpisode: Episode?,
     isPlaying: Boolean,
     getProgressForEpisode: (String) -> com.inkcast.android.data.model.PlaybackProgress?,
     onPlayEpisode: (Episode) -> Unit,
+    onCacheEpisode: (Episode) -> Unit = {},
     onRefresh: () -> Unit,
     onBack: () -> Unit,
     onUnsubscribe: () -> Unit
@@ -1184,12 +1446,28 @@ fun ModernPodcastDetailScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "单集列表",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "单集列表",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isOfflineCache) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = "离线缓存模式",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(16.dp),
@@ -1219,13 +1497,20 @@ fun ModernPodcastDetailScreen(
                     val isPlayingThis = (ep.id == currentPlayingEpisode?.id) && isPlaying
                     val isCurrent = (ep.id == currentPlayingEpisode?.id)
                     val progress = getProgressForEpisode(ep.id)
+                    val isCached = ep.id in cachedEpisodeIds
+                    val cachingProgress = cachingProgressMap[ep.id]
                     val onPlayClick = remember(ep.id) { { onPlayEpisode(ep) } }
+                    val onCacheClick = remember(ep.id) { { onCacheEpisode(ep) } }
 
                     ModernEpisodeRow(
                         episode = ep,
-                        isCurrentPlaying = isCurrent,
+                        isCurrentPlaying = isPlayingThis,
                         progress = progress,
-                        onPlayClick = onPlayClick
+                        isCached = isCached,
+                        cachingProgress = cachingProgress,
+                        isCurrent = isCurrent,
+                        onPlayClick = onPlayClick,
+                        onCacheClick = onCacheClick
                     )
                 }
             }

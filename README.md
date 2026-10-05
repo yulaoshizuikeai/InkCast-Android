@@ -1,21 +1,31 @@
-# InkCast-Android 📻
+# PodFlow 🎙️
 
 [![Android CI/CD](https://github.com/yulaoshizuikeai/InkCast-Android/actions/workflows/android-ci.yml/badge.svg)](https://github.com/yulaoshizuikeai/InkCast-Android/actions/workflows/android-ci.yml)
 ![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-brightgreen)
-![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20(E--Ink)-black)
+![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20(M3%20Expressive)-purple)
 ![Media3](https://img.shields.io/badge/Audio-AndroidX%20Media3%201.4.1-blue)
 
-**InkCast** 是一款专为**电子墨水屏（E-Ink）设备**深度定制的极简播客客户端。结合高对比度黑白界面与分页式交互，彻底消除 E-Ink 设备上的滚动残影与闪烁痛点，带来纯粹、省电、舒适的听觉阅读体验。
+**PodFlow** 是一款现代、独立、纯粹的原生 Android RSS 播客播放器。采用最新 Jetpack Compose Material 3 沉浸式设计与 AndroidX Media3 音频架构，支持任意标准 RSS 订阅、全景音频波形光环视觉设计、边听边存离线流媒体缓存与智能睡眠定时器。
+
+<div align="center">
+  <img src="art/podflow_logo.svg" width="160" height="160" alt="PodFlow Logo" />
+  <p><em>全景音频波形光环 • 纯粹流动的 RSS 播客之声</em></p>
+</div>
 
 ---
 
 ## ✨ 核心特性
 
-- 📄 **墨水屏专属 UI**：纯粹黑白高对比度布局（无低对比灰阶与微动效），支持按页翻查列表，告别滑动残影与刷新卡顿。
-- ⚡ **智能流媒体加速代理**：针对国内直连海外播客 CDN 慢的问题，深度整合 Cloudflare Worker 流代理（`podcast.yunet.cfd`），原生支持 HTTP Range 局部请求、毫秒级拖拽快进与断点续传。
-- 🎵 **现代化音频中枢**：基于 **AndroidX Media3 (ExoPlayer + MediaSession)** 实现，支持后台播放、锁屏线控、倍速调节与定时停止。
-- 🔍 **智能订阅解析**：内置轻量级 XML 解析与智能重试机制，支持直接输入播客名称、RSS 链接或音频直链。
-- 🖼️ **轻量级封面缓存**：内存 LruCache + 二值化高反差渲染，兼顾美观与极低能耗。
+- 🎙️ **独立通用 RSS 播客订阅**：内置极速 XML Pull 解析引擎与重试机制，支持输入播客名称、RSS 订阅链接或音频直链，畅享完全自主掌控的去中心化播客体验。
+- 🎨 **全新全景波形光环设计**：以 360° 动态全景音频声波光环（Panoramic Audio Waveform Ring）与流线 Play 核心构筑专属 SVG 矢量标识，全面支持 Android Adaptive Icon 规范与 Material 3 动态色彩。
+- 📦 **双轨离线与流媒体缓存 (Offline-First)**：
+  - **节目元数据 SWR 缓存**：断网状态秒级拉取已缓存的播客列表与节目详情。
+  - **Media3 音频流边听边存**：基于 `SimpleCache` + 500MB LRU 智能淘汰，拖拽快退与重听不耗费额外流量，支持一键单集后台下载。
+- ⏱️ **智能睡眠定时器 (Sleep Timer)**：
+  - 预设 15 / 30 / 45 / 60 分钟倒计时，息屏及后台稳定生效。
+  - 专设“播完当前单集”模式，本集收听完毕即刻自动静音暂停。
+- ⚡ **智能流媒体加速代理**：深度整合 Cloudflare Worker 流代理（`podcast.yunet.cfd`），原生支持 HTTP Range 局部请求、毫秒级拖拽快进与断点续传。
+- 🎵 **现代化音频中枢**：基于 **AndroidX Media3 (ExoPlayer + MediaSession)** 实现，支持前台常驻通知、锁屏线控与 0.5x~3.0x 无极倍速调节。
 
 ---
 
@@ -29,19 +39,12 @@
 | **代码推送 (`Push`)** | 推送至 `main` 分支 | 运行单元测试、打包 Debug & Release APK 并上传工件 |
 | **拉取请求 (`PR`)** | 目标为 `main` 分支 | 自动化代码校验与测试，保障分支质量 |
 | **手动触发 (`workflow_dispatch`)** | GitHub Actions 页面手动点击 | 可自由选择构建目标（`all` / `debug` / `release`） |
-| **版本发布 (`Tag`)** | 推送 `v*` 标签（如 `v2.0.0`） | 自动创建 GitHub Release 并附带各构型 APK 安装包 |
+| **版本发布 (`Tag`)** | 推送 `v*` 标签（如 `v2.1.0`） | 自动创建 GitHub Release 并附带各构型 APK 安装包 |
 
 ### 2. 下载构建产物 (APK)
 1. 访问本仓库的 **[Actions](https://github.com/yulaoshizuikeai/InkCast-Android/actions)** 页面。
 2. 点击最近一次成功的 Workflow 记录。
-3. 在页面底部的 **Artifacts (工件)** 区域，即可直接下载打包好的 `InkCast-APKs.zip`（内含命名规范的 Debug 与 Release APK）。
-
-### 3. 一键发布新版本 (GitHub Release)
-本地打标签并推送后，云端流水线会自动完成构建并创建 Release：
-```bash
-git tag v2.0.0
-git push origin v2.0.0
-```
+3. 在页面底部的 **Artifacts (工件)** 区域，即可直接下载打包好的 APK 安装包。
 
 ---
 
@@ -70,7 +73,7 @@ git push origin v2.0.0
 ## 🌐 架构与配套服务
 
 ```
-InkCast-Android (Compose + Media3)
+PodFlow-Android (Compose + Media3)
        │
        ▼ (智能分流)
   ┌───────────────┴────────────────┐

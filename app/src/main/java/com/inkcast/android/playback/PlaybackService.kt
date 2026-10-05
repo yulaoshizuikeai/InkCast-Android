@@ -15,14 +15,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.inkcast.android.InkCastApp
 import com.inkcast.android.R
+import com.inkcast.android.data.cache.AudioCacheManager
 import com.inkcast.android.data.local.PreferencesManager
 import com.inkcast.android.data.model.PlaybackProgress
 import com.inkcast.android.ui.MainActivity
 
 /**
- * AndroidX Media3 MediaSessionService for InkCast.
+ * AndroidX Media3 MediaSessionService for PodFlow.
  * Ensures rock-solid foreground audio playback during screen-off and aggressive OS background killer states.
  */
 class PlaybackService : MediaSessionService() {
@@ -35,7 +37,13 @@ class PlaybackService : MediaSessionService() {
 
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
+    private var playerListener: Player.Listener? = null
     private lateinit var prefsManager: PreferencesManager
+
+    private val sleepTimerPauseAction: () -> Unit = {
+        Log.d(TAG, "SleepTimer fired: pausing player")
+        player?.pause()
+    }
 
     private val progressHandler = Handler(Looper.getMainLooper())
     private val progressRunnable = object : Runnable {
@@ -49,7 +57,14 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        prefsManager = PreferencesManager(this)
+        prefsManager = PreferencesManager.getInstance(this)
+
+        // Register SleepTimer pause action
+        SleepTimerManager.registerPauseAction(sleepTimerPauseAction)
+
+        // Initialize ExoPlayer with AudioCache DataSource for offline & streaming caching
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(AudioCacheManager.createCacheDataSourceFactory(this))
 
         // Initialize ExoPlayer with AudioAttributes for speech/podcasts, audio focus, and wake lock
         val audioAttributes = AudioAttributes.Builder()
@@ -58,6 +73,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val exoPlayer = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
@@ -70,7 +86,7 @@ class PlaybackService : MediaSessionService() {
         exoPlayer.playbackParameters = PlaybackParameters(savedSpeed)
 
         // Player event listener for breakpoint saving
-        exoPlayer.addListener(object : Player.Listener {
+        val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 saveCurrentPlaybackProgress()
                 if (isPlaying) {
@@ -83,8 +99,13 @@ class PlaybackService : MediaSessionService() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
-                    Player.STATE_ENDED, Player.STATE_IDLE -> {
+                    Player.STATE_ENDED -> {
+                        SleepTimerManager.onEpisodeEnded()
                         saveCurrentPlaybackProgress()
+                        progressHandler.removeCallbacks(progressRunnable)
+                    }
+                    Player.STATE_IDLE -> {
+                        // Do not save progress in STATE_IDLE to prevent overwriting with 0
                         progressHandler.removeCallbacks(progressRunnable)
                     }
                     Player.STATE_READY -> {
@@ -101,7 +122,9 @@ class PlaybackService : MediaSessionService() {
             ) {
                 saveCurrentPlaybackProgress()
             }
-        })
+        }
+        playerListener = listener
+        exoPlayer.addListener(listener)
 
         player = exoPlayer
 
@@ -148,6 +171,11 @@ class PlaybackService : MediaSessionService() {
         if (episodeId.isBlank()) return
 
         val currentPosition = p.currentPosition
+        // Prevent STATE_IDLE or invalid zero position from wiping existing progress
+        if (p.playbackState == Player.STATE_IDLE && currentPosition == 0L) {
+            return
+        }
+
         val playerDuration = p.duration.coerceAtLeast(0L)
         val finalDuration = if (playerDuration > 0L) {
             playerDuration
@@ -173,20 +201,29 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroying: saving progress and releasing player")
+        SleepTimerManager.unregisterPauseAction(sleepTimerPauseAction)
         progressHandler.removeCallbacks(progressRunnable)
         saveCurrentPlaybackProgress()
+
+        // Remove listener BEFORE calling stop to prevent STATE_IDLE callback from overwriting progress
+        playerListener?.let {
+            player?.removeListener(it)
+        }
+        playerListener = null
 
         player?.let {
             it.stop()
             it.clearMediaItems()
-            it.release()
         }
-        player = null
 
+        // Release MediaSession FIRST, then release Player (official Media3 requirement)
         mediaSession?.run {
             release()
-            mediaSession = null
         }
+        mediaSession = null
+
+        player?.release()
+        player = null
 
         super.onDestroy()
     }
@@ -201,10 +238,14 @@ class PlaybackService : MediaSessionService() {
                 val progress = prefsManager.getProgress(lastEpisode.id)
                 val startPos = progress?.positionMs ?: 0L
 
+                val extras = android.os.Bundle().apply {
+                    putString("feedId", lastEpisode.feedId)
+                }
                 val mediaMetadata = MediaMetadata.Builder()
                     .setTitle(lastEpisode.title)
                     .setArtist(lastEpisode.pubDate)
                     .setDescription(lastEpisode.description)
+                    .setExtras(extras)
                     .apply {
                         if (lastEpisode.imageUrl.isNotBlank()) {
                             setArtworkUri(android.net.Uri.parse(lastEpisode.imageUrl))

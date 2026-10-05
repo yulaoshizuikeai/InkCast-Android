@@ -22,7 +22,7 @@ class PodcastCoverInterceptor : Interceptor {
         val originalUrl = request.url.toString()
         val thumbUrl = FeedResolverAgent.getInstance().toThumbnailUrl(originalUrl)
         val settings = try {
-            PreferencesManager(InkCastApp.instance).getSettings()
+            InkCastApp.getInstanceOrNull()?.let { PreferencesManager.getInstance(it).getSettings() }
         } catch (_: Exception) {
             null
         }
@@ -31,7 +31,7 @@ class PodcastCoverInterceptor : Interceptor {
 
         val newRequest = request.newBuilder()
             .url(finalUrl)
-            .header("User-Agent", "InkCast/2.0 (Android Native M3)")
+            .header("User-Agent", "PodFlow/2.1 (Android Native M3)")
             .build()
         return chain.proceed(newRequest)
     }
@@ -40,10 +40,12 @@ class PodcastCoverInterceptor : Interceptor {
 class InkCastApp : Application(), ImageLoaderFactory {
 
     companion object {
-        const val PLAYBACK_CHANNEL_ID = "inkcast_playback_channel"
-        const val PLAYBACK_CHANNEL_NAME = "InkCast Playback Service"
+        const val PLAYBACK_CHANNEL_ID = "podflow_playback_channel"
+        const val PLAYBACK_CHANNEL_NAME = "PodFlow Playback Service"
         lateinit var instance: InkCastApp
             private set
+
+        fun getInstanceOrNull(): InkCastApp? = if (::instance.isInitialized) instance else null
     }
 
     override fun onCreate() {
@@ -84,7 +86,7 @@ class InkCastApp : Application(), ImageLoaderFactory {
                 PLAYBACK_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Foreground playback notification for InkCast"
+                description = "Foreground playback notification for PodFlow"
                 setShowBadge(false)
             }
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

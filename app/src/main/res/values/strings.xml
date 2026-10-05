@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">InkCast</string>
-    <string name="app_subtitle">E-ink Native Podcast Player</string>
-    <string name="playback_channel_name">InkCast 播放服务</string>
+    <string name="app_name">PodFlow</string>
+    <string name="app_subtitle">Modern Standalone RSS Podcast Player</string>
+    <string name="playback_channel_name">PodFlow 播放服务</string>
 </resources>

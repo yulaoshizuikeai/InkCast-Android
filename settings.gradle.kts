@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "InkCast-Android"
+rootProject.name = "PodFlow-Android"
 include(":app")

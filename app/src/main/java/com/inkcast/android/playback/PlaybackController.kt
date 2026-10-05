@@ -3,6 +3,7 @@ package com.inkcast.android.playback
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -13,7 +14,6 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import com.inkcast.android.data.local.PreferencesManager
 import com.inkcast.android.data.model.Episode
 import com.inkcast.android.data.model.PlaybackProgress
@@ -35,9 +35,11 @@ class PlaybackController(context: Context) {
     }
 
     private val appContext = context.applicationContext
-    private val prefsManager = PreferencesManager(appContext)
+    private val prefsManager = PreferencesManager.getInstance(appContext)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
+    private var controllerListener: Player.Listener? = null
+    private var isReleased = false
     private var pendingPlayEpisode: Episode? = null
 
     private val _currentEpisode = MutableStateFlow<Episode?>(null)
@@ -58,6 +60,9 @@ class PlaybackController(context: Context) {
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
+    // Sleep Timer state
+    val sleepTimerState: StateFlow<SleepTimerState> = SleepTimerManager.timerState
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastSavedPositionMs = 0L
@@ -85,6 +90,11 @@ class PlaybackController(context: Context) {
         initMediaController()
     }
 
+    private val sleepTimerPauseAction: () -> Unit = {
+        Log.d(TAG, "SleepTimer triggered: pausing MediaController")
+        mediaController?.pause()
+    }
+
     private fun initMediaController() {
         val sessionToken = SessionToken(
             appContext,
@@ -92,6 +102,9 @@ class PlaybackController(context: Context) {
         )
         controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
         controllerFuture?.addListener({
+            if (isReleased) {
+                return@addListener
+            }
             try {
                 mediaController = controllerFuture?.get()
                 setupControllerListener()
@@ -103,11 +116,14 @@ class PlaybackController(context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error connecting MediaController", e)
             }
-        }, MoreExecutors.directExecutor())
+        }, androidx.core.content.ContextCompat.getMainExecutor(appContext))
     }
 
     private fun setupControllerListener() {
         val controller = mediaController ?: return
+
+        // Hook SleepTimer to pause the controller if fired while connected
+        SleepTimerManager.registerPauseAction(sleepTimerPauseAction)
 
         _isPlaying.value = controller.isPlaying
         _playbackSpeed.value = controller.playbackParameters.speed
@@ -115,9 +131,22 @@ class PlaybackController(context: Context) {
         if (dur > 0L) {
             _durationMs.value = dur
         }
-        updatePosition()
+        controller.currentMediaItem?.let { item ->
+            syncCurrentMediaItem(item)
+            updatePosition()
+        }
 
-        controller.addListener(object : Player.Listener {
+        // If the service was already actively playing when connecting, start smooth poller immediately
+        if (controller.isPlaying) {
+            mainHandler.removeCallbacks(smoothPositionPoller)
+            mainHandler.post(smoothPositionPoller)
+        }
+
+        val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                syncCurrentMediaItem(mediaItem)
+                updatePosition()
+            }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
                 if (isPlaying) {
@@ -143,6 +172,7 @@ class PlaybackController(context: Context) {
                 }
                 updatePosition()
                 if (playbackState == Player.STATE_ENDED) {
+                    SleepTimerManager.onEpisodeEnded()
                     persistCurrentProgress()
                 }
             }
@@ -154,22 +184,56 @@ class PlaybackController(context: Context) {
             ) {
                 updatePosition()
             }
-        })
+        }
+        controllerListener = listener
+        controller.addListener(listener)
+    }
+
+    private fun syncCurrentMediaItem(mediaItem: MediaItem?) {
+        if (mediaItem != null) {
+            val current = _currentEpisode.value
+            if (current == null || current.id != mediaItem.mediaId) {
+                val saved = prefsManager.getCurrentEpisode()
+                if (saved != null && (saved.id == mediaItem.mediaId || saved.audioUrl == mediaItem.requestMetadata.mediaUri?.toString())) {
+                    _currentEpisode.value = saved
+                } else {
+                    val audioUri = mediaItem.requestMetadata.mediaUri?.toString()
+                        ?: mediaItem.localConfiguration?.uri?.toString() ?: ""
+                    val durMs = mediaController?.duration?.coerceAtLeast(0L) ?: 0L
+                    val durSec = durMs / 1000L
+                    val durFormatted = if (durSec > 0) {
+                        val m = durSec / 60
+                        val s = durSec % 60
+                        String.format(java.util.Locale.US, "%02d:%02d", m, s)
+                    } else ""
+                    val resolvedFeedId = mediaItem.mediaMetadata.extras?.getString("feedId")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: current?.feedId.orEmpty()
+                    _currentEpisode.value = Episode(
+                        id = mediaItem.mediaId.ifBlank { audioUri },
+                        feedId = resolvedFeedId,
+                        title = mediaItem.mediaMetadata.title?.toString() ?: "",
+                        description = mediaItem.mediaMetadata.description?.toString() ?: "",
+                        audioUrl = audioUri,
+                        pubDate = mediaItem.mediaMetadata.artist?.toString() ?: "",
+                        durationSeconds = durSec,
+                        durationFormatted = durFormatted,
+                        imageUrl = mediaItem.mediaMetadata.artworkUri?.toString() ?: ""
+                    )
+                }
+            }
+        }
     }
 
     private fun updatePosition() {
         val controller = mediaController ?: return
+        if (controller.currentMediaItem == null) return
         val pos = controller.currentPosition.coerceAtLeast(0L)
         val dur = controller.duration.coerceAtLeast(0L)
         if (dur > 0) {
             _durationMs.value = dur
         }
         _positionMs.value = pos
-
-        // Periodically save progress to local disk every 5 seconds
-        if (kotlin.math.abs(pos - lastSavedPositionMs) >= 5000L) {
-            persistCurrentProgress()
-        }
     }
 
     private fun persistCurrentProgress() {
@@ -198,6 +262,16 @@ class PlaybackController(context: Context) {
             return
         }
 
+        // If the requested episode is already the active item, toggle playback seamlessly
+        if (controller.currentMediaItem?.mediaId == episode.id) {
+            if (controller.isPlaying) {
+                controller.pause()
+            } else {
+                controller.play()
+            }
+            return
+        }
+
         _currentEpisode.value = episode
         prefsManager.saveCurrentEpisode(episode)
 
@@ -205,10 +279,14 @@ class PlaybackController(context: Context) {
         val progress = prefsManager.getProgress(episode.id)
         val startPositionMs = progress?.positionMs ?: 0L
 
+        val extras = Bundle().apply {
+            putString("feedId", episode.feedId)
+        }
         val mediaMetadata = MediaMetadata.Builder()
             .setTitle(episode.title)
             .setArtist(episode.pubDate)
             .setDescription(episode.description)
+            .setExtras(extras)
             .apply {
                 if (episode.imageUrl.isNotBlank()) {
                     setArtworkUri(Uri.parse(episode.imageUrl))
@@ -286,9 +364,21 @@ class PlaybackController(context: Context) {
         setPlaybackSpeed(nextSpeed)
     }
 
+    fun setSleepTimer(option: SleepTimerOption) {
+        SleepTimerManager.setTimer(option)
+    }
+
+    fun cancelSleepTimer() {
+        SleepTimerManager.cancelTimer()
+    }
+
     fun release() {
+        isReleased = true
+        SleepTimerManager.unregisterPauseAction(sleepTimerPauseAction)
         persistCurrentProgress()
         mainHandler.removeCallbacks(smoothPositionPoller)
+        controllerListener?.let { mediaController?.removeListener(it) }
+        controllerListener = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         mediaController = null
         pendingPlayEpisode = null

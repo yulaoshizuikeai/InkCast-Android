@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Clean Light White Background Squircle -->
+  <rect width="512" height="512" rx="116" fill="#FFFFFF" />
+  <rect x="2" y="2" width="508" height="508" rx="114" stroke="#F1F5F9" stroke-width="3" />
+
+  <!-- === Layer 1: Green Circular Flow / Recycle Graphic === -->
+  <g id="flow-arrows" fill="#74BD00">
+    <!-- Top-Right Arrow & Arc -->
+    <!-- Arc 1: from top to right -->
+    <path d="M 195 35 
+             L 245 85 
+             L 215 90 
+             A 170 170 0 0 1 426 230 
+             L 468 220 
+             A 210 210 0 0 0 195 35 Z" />
+
+    <!-- Bottom Arrow & Arc -->
+    <!-- Arc 2: from right to bottom-left -->
+    <path d="M 445 270 
+             L 475 350 
+             L 440 335 
+             A 170 170 0 0 1 185 425 
+             L 175 465 
+             A 210 210 0 0 0 445 270 Z" />
+
+    <!-- Left Arrow & Arc -->
+    <!-- Arc 3: from bottom-left to top-left -->
+    <path d="M 140 400 
+             L 85 360 
+             L 105 330 
+             A 170 170 0 0 1 120 135 
+             L 80 120 
+             A 210 210 0 0 0 140 400 Z" />
+  </g>
+
+  <!-- === Layer 2: White Silhouette Mask of Character === -->
+  <!-- This punches out the green graphic cleanly behind the anime line art -->
+  <g id="character-mask" fill="#FFFFFF">
+    <!-- Hair & Head White Mask Polygon -->
+    <path d="M 160 140 
+             C 180 85 310 85 390 145 
+             C 435 185 450 250 445 320
+             L 370 320 
+             L 350 310 
+             L 300 325 
+             L 290 370 
+             L 150 340 
+             L 140 280 
+             L 130 240 
+             L 155 190 Z" />
+
+    <!-- Collar & Body White Mask -->
+    <path d="M 150 330 
+             L 290 355 
+             L 305 450 
+             L 280 500 
+             L 130 480 
+             L 145 370 Z" />
+  </g>
+
+  <!-- === Layer 3: Anime Character Clean Line Art (Indie / Avant-Garde Style) === -->
+  <g id="anime-character-lines" stroke="#70B800" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="miter">
+
+    <!-- Profile Silhouette (Forehead -> Nose -> Lips -> Chin -> Jaw) -->
+    <!-- Forehead down to sharp nose -->
+    <path d="M 180 175 L 160 215 L 140 245 L 162 255 L 152 278 L 165 315 L 215 325" fill="none" />
+
+    <!-- Sharp Eye / Glasses Structure -->
+    <!-- Geometric Glasses Frame -->
+    <polygon points="156,218 202,210 214,236 166,244" fill="#FFFFFF" stroke="#70B800" stroke-width="4" />
+    <!-- Glasses Temple Arm going back -->
+    <line x1="202" y1="210" x2="225" y2="218" stroke-width="3.5" />
+    <!-- Eye pupil line inside glasses -->
+    <line x1="175" y1="225" x2="192" y2="223" stroke-width="4.5" />
+
+    <!-- Hair Strands & Bangs (Angular, Geometric Cutting Style) -->
+    <!-- Crown of head line -->
+    <path d="M 175 145 C 220 95 320 95 395 155 C 430 190 442 245 442 295" fill="none" stroke-width="4.5" />
+
+    <!-- Bang Strand 1 (Long front left strand over profile) -->
+    <line x1="172" y1="150" x2="135" y2="230" stroke-width="4" />
+    <line x1="135" y1="230" x2="152" y2="250" stroke-width="4" />
+
+    <!-- Bang Strand 2 (Across glasses) -->
+    <line x1="215" y1="175" x2="206" y2="350" stroke-width="4.2" />
+
+    <!-- Bang Strand 3 (Mid forehead strand) -->
+    <line x1="222" y1="245" x2="278" y2="305" stroke-width="4" />
+    <line x1="278" y1="305" x2="275" y2="328" stroke-width="3.8" />
+
+    <!-- Back Bob Haircut Strands (Sharp Vertical & Angled Cuts) -->
+    <line x1="352" y1="265" x2="356" y2="310" stroke-width="4" />
+    <line x1="378" y1="280" x2="382" y2="312" stroke-width="3.8" />
+    <line x1="392" y1="250" x2="410" y2="305" stroke-width="4" />
+    <line x1="422" y1="235" x2="435" y2="280" stroke-width="4" />
+
+    <!-- Horizontal Inner Hair Volume Guide Line -->
+    <line x1="224" y1="318" x2="292" y2="312" stroke-width="4" />
+
+    <!-- High Collar / Coat Lapel (Bold Geometric Triangle/Parallelogram) -->
+    <polygon points="152,330 292,355 298,425 160,400" fill="#FFFFFF" stroke="#70B800" stroke-width="4.5" />
+    <!-- Inner Collar Fold -->
+    <line x1="208" y1="340" x2="216" y2="408" stroke-width="3.5" />
+
+    <!-- Shoulder & Torso Lines (Minimalist Extensions) -->
+    <line x1="304" y1="420" x2="314" y2="505" stroke-width="4.2" />
+    <line x1="390" y1="455" x2="398" y2="505" stroke-width="4" />
+  </g>
+</svg>

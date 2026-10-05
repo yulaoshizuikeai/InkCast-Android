@@ -1,0 +1,111 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Layer 1: Green Flow Arcs & Arrows (♻️ Loop) -->
+    <!-- Top-Right Arc & Arrow -->
+    <path
+        android:fillColor="#74BD00"
+        android:pathData="M 41.13,7.38 L 51.68,17.93 L 45.35,18.98 A 35.86,35.86 0 0,1 89.86,48.52 L 98.72,46.41 A 44.30,44.30 0 0,0 41.13,7.38 Z" />
+
+    <!-- Bottom Arc & Arrow -->
+    <path
+        android:fillColor="#74BD00"
+        android:pathData="M 93.87,56.95 L 100.20,73.83 L 92.81,70.66 A 35.86,35.86 0 0,1 39.02,89.65 L 36.91,98.09 A 44.30,44.30 0 0,0 93.87,56.95 Z" />
+
+    <!-- Left Arc & Arrow -->
+    <path
+        android:fillColor="#74BD00"
+        android:pathData="M 29.53,84.38 L 17.93,75.94 L 22.15,69.61 A 35.86,35.86 0 0,1 25.31,28.48 L 16.88,25.31 A 44.30,44.30 0 0,0 29.53,84.38 Z" />
+
+    <!-- Layer 2: White Character Silhouette Mask -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 33.75,29.53 C 37.97,17.93 65.39,17.93 82.27,30.59 C 91.76,39.02 94.92,52.73 93.87,67.50 L 78.05,67.50 L 73.83,65.39 L 63.28,68.55 L 61.17,78.05 L 31.64,71.72 L 29.53,59.06 L 27.42,50.63 L 32.70,40.08 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 31.64,69.61 L 61.17,74.88 L 64.34,94.92 L 59.06,105.47 L 27.42,101.25 L 30.59,78.05 Z" />
+
+    <!-- Layer 3: Anime Character Line Art -->
+    <!-- Profile Silhouette -->
+    <path
+        android:pathData="M 37.97,36.91 L 33.75,45.35 L 29.53,51.68 L 34.17,53.79 L 32.06,58.64 L 34.80,66.45 L 45.35,68.55"
+        android:strokeWidth="1.0"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Glasses Frame -->
+    <path
+        android:pathData="M 32.91,46.00 L 42.61,44.30 L 45.14,49.78 L 35.02,51.47 Z"
+        android:fillColor="#FFFFFF"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800" />
+    <!-- Glasses Temple & Pupil -->
+    <path
+        android:pathData="M 42.61,44.30 L 47.46,46.00 M 36.91,47.46 L 40.50,47.04"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Crown of Head -->
+    <path
+        android:pathData="M 36.91,30.59 C 46.41,20.04 67.50,20.04 83.32,32.70 C 90.70,40.08 93.23,51.68 93.23,62.23"
+        android:strokeWidth="1.0"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Bang Strands -->
+    <path
+        android:pathData="M 36.28,31.64 L 28.48,48.52 L 32.06,52.73"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 45.35,36.91 L 43.45,73.83"
+        android:strokeWidth="0.95"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M 46.83,51.68 L 58.64,64.34 L 58.01,69.19"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Back Bob Haircut Strands -->
+    <path
+        android:pathData="M 74.25,55.90 L 75.09,65.39 M 79.73,59.06 L 80.58,65.81 M 82.69,52.73 L 86.48,64.34 M 89.02,49.57 L 91.76,59.06"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Inner Hair Horizon -->
+    <path
+        android:pathData="M 47.25,67.08 L 61.60,65.81"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- High Collar Geometric Polygon -->
+    <path
+        android:pathData="M 32.06,69.61 L 61.60,74.88 L 62.86,89.65 L 33.75,84.38 Z"
+        android:fillColor="#FFFFFF"
+        android:strokeWidth="1.0"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+    <!-- Inner Collar Fold -->
+    <path
+        android:pathData="M 43.88,71.72 L 45.56,86.06"
+        android:strokeWidth="0.8"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+
+    <!-- Torso Lines -->
+    <path
+        android:pathData="M 64.13,88.60 L 66.23,106.52 M 82.27,96.00 L 83.95,106.52"
+        android:strokeWidth="0.9"
+        android:strokeColor="#70B800"
+        android:strokeLineCap="round" />
+</vector>

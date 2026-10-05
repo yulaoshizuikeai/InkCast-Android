@@ -29,8 +29,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -38,8 +42,12 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,7 +64,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import com.inkcast.android.playback.SleepTimerOption
+import com.inkcast.android.playback.SleepTimerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -110,6 +121,8 @@ fun ModernAsyncImage(
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(url)
+                    .size(targetSizePx, targetSizePx)
+                    .precision(coil.size.Precision.INEXACT)
                     .crossfade(true)
                     .build(),
                 contentDescription = contentDescription,
@@ -129,6 +142,33 @@ fun ModernAsyncImage(
             }
         }
     }
+}
+
+/**
+ * Isolated progress bar subcomponent for ModernMiniPlayer.
+ * Confines 500ms continuous position state subscriptions to this tiny bar,
+ * preventing cascade recompositions of artwork, titles, and controls.
+ */
+@Composable
+private fun MiniPlayerProgressBar(
+    playbackController: PlaybackController,
+    episode: Episode,
+    modifier: Modifier = Modifier
+) {
+    val positionState = playbackController.positionMs.collectAsState()
+    val durationState = playbackController.durationMs.collectAsState()
+
+    LinearProgressIndicator(
+        progress = {
+            val durMs = durationState.value.let { if (it > 0) it else (episode.durationSeconds * 1000L).coerceAtLeast(0L) }
+            if (durMs <= 0L) 0f else (positionState.value.toFloat() / durMs.toFloat()).coerceIn(0f, 1f)
+        },
+        modifier = modifier
+            .fillMaxWidth()
+            .height(3.dp),
+        color = MaterialTheme.colorScheme.primary,
+        trackColor = MaterialTheme.colorScheme.surfaceVariant
+    )
 }
 
 /**
@@ -156,8 +196,6 @@ fun ModernMiniPlayer(
         if (episode == null) return@AnimatedVisibility
 
         val coverUrl = episode.imageUrl.ifBlank { "" }
-        val positionState = playbackController.positionMs.collectAsState()
-        val durationState = playbackController.durationMs.collectAsState()
 
         Card(
             modifier = Modifier
@@ -230,18 +268,11 @@ fun ModernMiniPlayer(
                     }
                 }
 
-                // Tiny smooth real-time progress indicator at the bottom edge.
-                // Evaluated in draw phase with lambda to avoid recomposing ModernMiniPlayer.
-                LinearProgressIndicator(
-                    progress = {
-                        val durMs = durationState.value.let { if (it > 0) it else (episode.durationSeconds * 1000L).coerceAtLeast(1L) }
-                        (positionState.value.toFloat() / durMs.toFloat()).coerceIn(0f, 1f)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                // Tiny smooth real-time progress indicator isolated in MiniPlayerProgressBar
+                // to prevent 500ms ticker recompositions from bubbling up to ModernMiniPlayer.
+                MiniPlayerProgressBar(
+                    playbackController = playbackController,
+                    episode = episode
                 )
             }
         }
@@ -261,6 +292,9 @@ fun FullPlayerBottomSheet(
     isPlaying: Boolean,
     playbackController: PlaybackController,
     playbackSpeed: Float,
+    isCached: Boolean = false,
+    cachingProgress: Int? = null,
+    onCacheClick: (() -> Unit)? = null,
     onDismissRequest: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeekTo: (Long) -> Unit,
@@ -271,9 +305,11 @@ fun FullPlayerBottomSheet(
     if (episode == null) return
 
     val durationMs by playbackController.durationMs.collectAsState()
+    val sleepTimerState by playbackController.sleepTimerState.collectAsState()
+    var showSleepTimerDialog by remember { mutableStateOf(false) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val durationToUse = if (durationMs > 0) durationMs else (episode.durationSeconds * 1000L).coerceAtLeast(1L)
+    val durationToUse = if (durationMs > 0) durationMs else (episode.durationSeconds * 1000L).coerceAtLeast(0L)
     val coverUrl = episode.imageUrl.ifBlank { feed?.artworkUrl.orEmpty() }
 
     var showNotes by remember { mutableStateOf(false) }
@@ -496,7 +532,219 @@ fun FullPlayerBottomSheet(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Secondary Action Dock: Sleep Timer & Cache Episode
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Sleep Timer Button
+                FilledTonalButton(
+                    onClick = { showSleepTimerDialog = true },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = if (sleepTimerState.isActive) {
+                        ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        ButtonDefaults.filledTonalButtonColors()
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Timer,
+                        contentDescription = "定时关闭",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (sleepTimerState.isActive) sleepTimerState.formattedTime else "定时关闭",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+
+                // Cache Episode Button
+                FilledTonalButton(
+                    onClick = { if (!isCached && cachingProgress == null) onCacheClick?.invoke() },
+                    enabled = !isCached && cachingProgress == null,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (cachingProgress != null) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "缓存中 $cachingProgress%", style = MaterialTheme.typography.labelMedium)
+                    } else if (isCached) {
+                        Icon(
+                            imageVector = Icons.Filled.DownloadDone,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "已缓存离线", style = MaterialTheme.typography.labelMedium)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "缓存本集", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
         }
+    }
+
+    if (showSleepTimerDialog) {
+        SleepTimerDialog(
+            currentState = sleepTimerState,
+            onSelectOption = { playbackController.setSleepTimer(it) },
+            onDismissRequest = { showSleepTimerDialog = false }
+        )
+    }
+}
+
+/**
+ * Modal Dialog for selecting Sleep Timer presets.
+ */
+@Composable
+fun SleepTimerDialog(
+    currentState: SleepTimerState,
+    onSelectOption: (SleepTimerOption) -> Unit,
+    onDismissRequest: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Timer,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "定时关闭播放",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (currentState.isActive) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AccessTime,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "正在倒计时: ${currentState.formattedTime}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+
+                val options = listOf(
+                    SleepTimerOption.END_OF_EPISODE,
+                    SleepTimerOption.MINUTES_15,
+                    SleepTimerOption.MINUTES_30,
+                    SleepTimerOption.MINUTES_45,
+                    SleepTimerOption.MINUTES_60
+                )
+
+                options.forEach { option ->
+                    val isSelected = currentState.isActive && currentState.selectedOption == option
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable {
+                                onSelectOption(option)
+                                onDismissRequest()
+                            },
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                            )
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (currentState.isActive) {
+                TextButton(
+                    onClick = {
+                        onSelectOption(SleepTimerOption.OFF)
+                        onDismissRequest()
+                    }
+                ) {
+                    Text("取消定时", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismissRequest) {
+                Text("关闭")
+            }
+        }
+    )
+}
+
+private fun formatProgressTime(ms: Long, forceHours: Boolean = false): String {
+    if (ms <= 0L) return if (forceHours) "00:00:00" else "00:00"
+    val totalSeconds = ms / 1000L
+    val h = totalSeconds / 3600L
+    val m = (totalSeconds % 3600L) / 60L
+    val s = totalSeconds % 60L
+    return if (h > 0 || forceHours) {
+        String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s)
+    } else {
+        String.format(java.util.Locale.US, "%02d:%02d", m, s)
     }
 }
 
@@ -516,25 +764,38 @@ private fun PlayerProgressSlider(
     var isDraggingSlider by remember { mutableStateOf(false) }
     var draggingSliderValue by remember { mutableFloatStateOf(0f) }
 
+    val hasValidDuration = durationMs > 0L
     val currentDisplayPosMs = if (isDraggingSlider) draggingSliderValue.toLong() else positionMs
-    val sliderValue = if (isDraggingSlider) draggingSliderValue else positionMs.toFloat().coerceIn(0f, durationMs.toFloat())
+    val sliderValue = when {
+        !hasValidDuration -> 0f
+        isDraggingSlider -> draggingSliderValue
+        else -> positionMs.toFloat().coerceIn(0f, durationMs.toFloat())
+    }
 
     Column(modifier = modifier.fillMaxWidth()) {
         Slider(
             value = sliderValue,
             onValueChange = { newValue ->
-                isDraggingSlider = true
-                draggingSliderValue = newValue
+                if (hasValidDuration) {
+                    isDraggingSlider = true
+                    draggingSliderValue = newValue
+                }
             },
             onValueChangeFinished = {
-                isDraggingSlider = false
-                onSeekTo(draggingSliderValue.toLong())
+                if (hasValidDuration) {
+                    isDraggingSlider = false
+                    onSeekTo(draggingSliderValue.toLong())
+                }
             },
-            valueRange = 0f..durationMs.toFloat(),
+            enabled = hasValidDuration,
+            valueRange = if (hasValidDuration) 0f..durationMs.toFloat() else 0f..1f,
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledThumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                disabledActiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                disabledInactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
             ),
             modifier = Modifier.fillMaxWidth()
         )
@@ -544,12 +805,12 @@ private fun PlayerProgressSlider(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = formatTime(currentDisplayPosMs),
+                text = formatProgressTime(currentDisplayPosMs, forceHours = durationMs >= 3600000L),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = formatTime(durationMs),
+                text = if (hasValidDuration) formatProgressTime(durationMs) else "--:--",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -669,7 +930,11 @@ fun ModernEpisodeRow(
     episode: Episode,
     isCurrentPlaying: Boolean,
     progress: PlaybackProgress?,
+    isCached: Boolean = false,
+    cachingProgress: Int? = null,
+    isCurrent: Boolean = isCurrentPlaying,
     onPlayClick: () -> Unit,
+    onCacheClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -678,13 +943,13 @@ fun ModernEpisodeRow(
             .clickable(onClick = onPlayClick),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCurrentPlaying) {
+            containerColor = if (isCurrent) {
                 MaterialTheme.colorScheme.primaryContainer
             } else {
                 MaterialTheme.colorScheme.surfaceContainerLow
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrentPlaying) 3.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrent) 3.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -697,7 +962,7 @@ fun ModernEpisodeRow(
                     text = episode.title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isCurrentPlaying) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -709,7 +974,7 @@ fun ModernEpisodeRow(
                         Text(
                             text = episode.pubDate,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isCurrentPlaying) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
@@ -717,7 +982,7 @@ fun ModernEpisodeRow(
                     Text(
                         text = episode.durationFormatted,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isCurrentPlaying) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
+                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
 
@@ -735,10 +1000,76 @@ fun ModernEpisodeRow(
                             )
                         }
                     }
+
+                    // Cache status badge
+                    if (cachingProgress != null) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(10.dp),
+                                    strokeWidth = 1.5.dp
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "$cachingProgress%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else if (isCached) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.DownloadDone,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "已离线",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Download/Cache button if not yet cached
+            if (!isCached && cachingProgress == null && onCacheClick != null) {
+                IconButton(
+                    onClick = onCacheClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Download,
+                        contentDescription = "缓存单集",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
 
             FilledTonalIconButton(
                 onClick = onPlayClick,

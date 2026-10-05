@@ -8,10 +8,29 @@ import com.inkcast.android.data.model.PlaybackProgress
 import com.inkcast.android.data.model.PodcastFeed
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
-class PreferencesManager(context: Context) {
+class PreferencesManager private constructor(context: Context) {
 
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences =
+        (context.applicationContext ?: context).getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    @Volatile
+    private var cachedSettings: AppSettings? = null
+
+    @Volatile
+    private var cachedSubscribedFeeds: List<PodcastFeed>? = null
+
+    @Volatile
+    private var isCurrentEpisodeLoaded: Boolean = false
+
+    @Volatile
+    private var cachedCurrentEpisode: Episode? = null
+
+    @Volatile
+    private var cachedSelectedFeedId: String? = null
+
+    private val progressCache = ConcurrentHashMap<String, PlaybackProgress>()
 
     companion object {
         private const val PREFS_NAME = "inkcast_preferences"
@@ -20,6 +39,27 @@ class PreferencesManager(context: Context) {
         private const val KEY_SELECTED_FEED_ID = "key_selected_feed_id"
         private const val KEY_PROGRESS_PREFIX = "key_progress_"
         private const val KEY_CURRENT_EPISODE = "key_current_playing_episode"
+        private const val KEY_PRESET_MIGRATION_VERSION = "key_preset_migration_version"
+        private const val CURRENT_MIGRATION_VERSION = 2
+
+        @Volatile
+        private var INSTANCE: PreferencesManager? = null
+
+        fun getInstance(context: Context): PreferencesManager {
+            return INSTANCE ?: synchronized(this) {
+                val appContext = context.applicationContext ?: context
+                INSTANCE ?: PreferencesManager(appContext).also { INSTANCE = it }
+            }
+        }
+
+        operator fun invoke(context: Context): PreferencesManager = getInstance(context)
+
+        @androidx.annotation.VisibleForTesting
+        fun resetForTesting() {
+            synchronized(this) {
+                INSTANCE = null
+            }
+        }
 
         val PRESET_FEEDS = listOf(
             // === NPR / BBC 情感与人生故事专区 ===
@@ -166,70 +206,98 @@ class PreferencesManager(context: Context) {
     }
 
     init {
-        // Initialize preset feeds if subscriptions are empty, or migrate to updated curated lineup
-        val currentFeeds = getSubscribedFeeds()
-        if (currentFeeds.isEmpty()) {
-            saveSubscribedFeeds(PRESET_FEEDS)
-            setSelectedFeedId(PRESET_FEEDS.first().id)
-        } else {
-            // Remove political feeds like Up First if present
-            val filtered = currentFeeds.filterNot { it.id == "preset_npr_up_first" || it.feedUrl.contains("510318") }
-            val presetMap = PRESET_FEEDS.associateBy { it.id }
-            var changed = filtered.size != currentFeeds.size
-            val updated = filtered.map { feed ->
-                val preset = presetMap[feed.id]
-                if (preset != null && (preset.artworkUrl != feed.artworkUrl || preset.feedUrl != feed.feedUrl)) {
-                    changed = true
-                    feed.copy(artworkUrl = preset.artworkUrl, feedUrl = preset.feedUrl)
-                } else {
-                    feed
+        val currentMigrationVersion = prefs.getInt(KEY_PRESET_MIGRATION_VERSION, 0)
+        if (currentMigrationVersion < CURRENT_MIGRATION_VERSION) {
+            val currentFeeds = getSubscribedFeeds()
+            if (currentFeeds.isEmpty()) {
+                saveSubscribedFeeds(PRESET_FEEDS)
+                setSelectedFeedId(PRESET_FEEDS.first().id)
+            } else {
+                // Remove political feeds like Up First if present
+                val filtered = currentFeeds.filterNot { it.id == "preset_npr_up_first" || it.feedUrl.contains("510318") }
+                val presetMap = PRESET_FEEDS.associateBy { it.id }
+                var changed = filtered.size != currentFeeds.size
+                val updated = filtered.map { feed ->
+                    val preset = presetMap[feed.id]
+                    if (preset != null && (preset.artworkUrl != feed.artworkUrl || preset.feedUrl != feed.feedUrl)) {
+                        changed = true
+                        feed.copy(artworkUrl = preset.artworkUrl, feedUrl = preset.feedUrl)
+                    } else {
+                        feed
+                    }
+                }
+                val existingIds = updated.map { it.id }.toSet()
+                val existingUrls = updated.map { it.feedUrl }.toSet()
+                val newPresets = PRESET_FEEDS.filterNot { it.id in existingIds || it.feedUrl in existingUrls }
+                if (newPresets.isNotEmpty() || changed) {
+                    saveSubscribedFeeds(updated + newPresets)
+                    if (getSelectedFeedId() == "preset_npr_up_first") {
+                        setSelectedFeedId(updated.firstOrNull()?.id ?: PRESET_FEEDS.first().id)
+                    }
                 }
             }
-            val existingIds = updated.map { it.id }.toSet()
-            val existingUrls = updated.map { it.feedUrl }.toSet()
-            val newPresets = PRESET_FEEDS.filterNot { it.id in existingIds || it.feedUrl in existingUrls }
-            if (newPresets.isNotEmpty() || changed) {
-                saveSubscribedFeeds(updated + newPresets)
-                if (getSelectedFeedId() == "preset_npr_up_first") {
-                    setSelectedFeedId(updated.firstOrNull()?.id ?: PRESET_FEEDS.first().id)
-                }
-            }
+            prefs.edit().putInt(KEY_PRESET_MIGRATION_VERSION, CURRENT_MIGRATION_VERSION).apply()
         }
     }
 
     fun getSettings(): AppSettings {
-        val jsonStr = prefs.getString(KEY_SETTINGS, null) ?: return AppSettings()
-        return try {
-            AppSettings.fromJson(JSONObject(jsonStr))
-        } catch (_: Exception) {
-            AppSettings()
+        cachedSettings?.let { return it }
+        synchronized(this) {
+            cachedSettings?.let { return it }
+            val jsonStr = prefs.getString(KEY_SETTINGS, null)
+            val s = if (jsonStr != null) {
+                try {
+                    AppSettings.fromJson(JSONObject(jsonStr))
+                } catch (_: Exception) {
+                    AppSettings()
+                }
+            } else {
+                AppSettings()
+            }
+            cachedSettings = s
+            return s
         }
     }
 
+    @Synchronized
     fun saveSettings(settings: AppSettings) {
+        cachedSettings = settings
         prefs.edit().putString(KEY_SETTINGS, settings.toJson().toString()).apply()
     }
 
     fun getSubscribedFeeds(): List<PodcastFeed> {
-        val jsonStr = prefs.getString(KEY_FEEDS, null) ?: return emptyList()
-        return try {
-            val array = JSONArray(jsonStr)
-            val list = mutableListOf<PodcastFeed>()
-            for (i in 0 until array.length()) {
-                list.add(PodcastFeed.fromJson(array.getJSONObject(i)))
+        cachedSubscribedFeeds?.let { return it }
+        synchronized(this) {
+            cachedSubscribedFeeds?.let { return it }
+            val jsonStr = prefs.getString(KEY_FEEDS, null)
+            val feeds = if (jsonStr != null) {
+                try {
+                    val array = JSONArray(jsonStr)
+                    val list = ArrayList<PodcastFeed>(array.length())
+                    for (i in 0 until array.length()) {
+                        list.add(PodcastFeed.fromJson(array.getJSONObject(i)))
+                    }
+                    list
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
             }
-            list
-        } catch (_: Exception) {
-            emptyList()
+            cachedSubscribedFeeds = feeds
+            return feeds
         }
     }
 
+    @Synchronized
     fun saveSubscribedFeeds(feeds: List<PodcastFeed>) {
+        cachedSubscribedFeeds = feeds
         val array = JSONArray()
         feeds.forEach { array.put(it.toJson()) }
         prefs.edit().putString(KEY_FEEDS, array.toString()).apply()
     }
 
+    @Synchronized
     fun addFeed(feed: PodcastFeed) {
         val current = getSubscribedFeeds().toMutableList()
         val existingIndex = current.indexOfFirst { it.id == feed.id || it.feedUrl == feed.feedUrl }
@@ -241,6 +309,7 @@ class PreferencesManager(context: Context) {
         saveSubscribedFeeds(current)
     }
 
+    @Synchronized
     fun removeFeed(feedId: String) {
         val current = getSubscribedFeeds().filterNot { it.id == feedId }
         saveSubscribedFeeds(current)
@@ -250,14 +319,20 @@ class PreferencesManager(context: Context) {
     }
 
     fun getSelectedFeedId(): String {
-        return prefs.getString(KEY_SELECTED_FEED_ID, "") ?: ""
+        cachedSelectedFeedId?.let { return it }
+        synchronized(this) {
+            cachedSelectedFeedId?.let { return it }
+            val id = prefs.getString(KEY_SELECTED_FEED_ID, "") ?: ""
+            cachedSelectedFeedId = id
+            return id
+        }
     }
 
+    @Synchronized
     fun setSelectedFeedId(feedId: String) {
+        cachedSelectedFeedId = feedId
         prefs.edit().putString(KEY_SELECTED_FEED_ID, feedId).apply()
     }
-
-    private val progressCache = java.util.concurrent.ConcurrentHashMap<String, PlaybackProgress>()
 
     fun saveProgress(progress: PlaybackProgress) {
         if (progress.episodeId.isBlank()) return
@@ -280,7 +355,10 @@ class PreferencesManager(context: Context) {
         }
     }
 
+    @Synchronized
     fun saveCurrentEpisode(episode: Episode?) {
+        cachedCurrentEpisode = episode
+        isCurrentEpisodeLoaded = true
         if (episode == null) {
             prefs.edit().remove(KEY_CURRENT_EPISODE).apply()
         } else {
@@ -289,11 +367,22 @@ class PreferencesManager(context: Context) {
     }
 
     fun getCurrentEpisode(): Episode? {
-        val jsonStr = prefs.getString(KEY_CURRENT_EPISODE, null) ?: return null
-        return try {
-            Episode.fromJson(JSONObject(jsonStr))
-        } catch (_: Exception) {
-            null
+        if (isCurrentEpisodeLoaded) return cachedCurrentEpisode
+        synchronized(this) {
+            if (isCurrentEpisodeLoaded) return cachedCurrentEpisode
+            val jsonStr = prefs.getString(KEY_CURRENT_EPISODE, null)
+            val ep = if (jsonStr != null) {
+                try {
+                    Episode.fromJson(JSONObject(jsonStr))
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+            cachedCurrentEpisode = ep
+            isCurrentEpisodeLoaded = true
+            return ep
         }
     }
 }

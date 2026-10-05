@@ -1,8 +1,10 @@
 package com.inkcast.android.data.model
 
+import androidx.compose.runtime.Immutable
 import org.json.JSONArray
 import org.json.JSONObject
 
+@Immutable
 data class PodcastFeed(
     val id: String,
     val title: String,
@@ -39,6 +41,7 @@ data class PodcastFeed(
     }
 }
 
+@Immutable
 data class Episode(
     val id: String,
     val feedId: String,
@@ -81,6 +84,7 @@ data class Episode(
     }
 }
 
+@Immutable
 data class PlaybackProgress(
     val episodeId: String,
     val positionMs: Long,
@@ -114,6 +118,7 @@ data class PlaybackProgress(
     }
 }
 
+@Immutable
 data class AppSettings(
     val rsshubBaseUrl: String = DEFAULT_RSSHUB_URL,
     val cfWorkerUrl: String = DEFAULT_CF_WORKER_URL,
@@ -147,6 +152,7 @@ data class AppSettings(
     }
 }
 
+@Immutable
 data class FeedResolveResult(
     val feed: PodcastFeed,
     val episodes: List<Episode>

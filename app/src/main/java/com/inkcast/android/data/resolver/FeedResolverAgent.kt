@@ -58,6 +58,14 @@ class FeedResolverAgent(
         val XIMALAYA_REGEX = Regex("""ximalaya\.com/(?:[a-zA-Z0-9_\-]+/)?(?:album|youshengshu)/(\d+)|(?:albumId=)(\d+)""")
         val GENERIC_URL_REGEX = Regex("""https?://[^\s<>"'\)]+""", RegexOption.IGNORE_CASE)
 
+        // Pre-compiled regexes for HTML cleaning, overseas fallback, and image thumbnailing
+        val HTML_TAG_REGEX = Regex("<[^>]*>")
+        val HOST_FALLBACK_REGEX = Regex("""https?://([^/:\s]+)""")
+        val BBC_ICHEF_REGEX = Regex("""/images/ic/(?:[0-9]+x[0-9]+|raw)/""")
+        val SIMPLECAST_DIR_REGEX = Regex("""/images/[^/]+/[^/]+/[0-9]+x[0-9]+/""")
+        val DIMENSION_PATTERN_REGEX = Regex("""[0-9]+x[0-9]+""")
+        val NPR_SIZE_PARAM_REGEX = Regex("""[?&]s=\d+""")
+
         // Known overseas podcast hosting domains requiring proxy分流 when proxy is enabled
         val OVERSEAS_DOMAINS = setOf(
             "npr.org",
@@ -251,7 +259,7 @@ class FeedResolverAgent(
             url.toHttpUrlOrNull()?.host?.lowercase()
                 ?: URI(url).host?.lowercase()
         } catch (_: Exception) {
-            Regex("""https?://([^/:\s]+)""").find(url)?.groupValues?.get(1)?.lowercase()
+            HOST_FALLBACK_REGEX.find(url)?.groupValues?.get(1)?.lowercase()
         } ?: return false
 
         return OVERSEAS_DOMAINS.any { domain ->
@@ -549,7 +557,7 @@ class FeedResolverAgent(
     fun cleanHtml(html: String): String {
         if (html.isEmpty()) return ""
         return html
-            .replace(Regex("<[^>]*>"), "") // Remove XML/HTML tags
+            .replace(HTML_TAG_REGEX, "") // Remove XML/HTML tags
             .replace("&amp;", "&")
             .replace("&lt;", "<")
             .replace("&gt;", ">")
@@ -587,19 +595,19 @@ class FeedResolverAgent(
         var url = rawUrl.trim()
 
         // 1. BBC ichef service: e.g. /images/ic/3000x3000/xxx.jpg -> /images/ic/400x400/xxx.jpg
-        url = url.replace(Regex("""/images/ic/(?:[0-9]+x[0-9]+|raw)/"""), "/images/ic/400x400/")
+        url = url.replace(BBC_ICHEF_REGEX, "/images/ic/400x400/")
 
         // 2. Apple Podcasts CDN (mzstatic): e.g. /600x600bb.jpg -> /300x300bb.jpg
         url = url.replace("600x600bb", "300x300bb")
 
         // 3. Simplecast CDN: e.g. /3000x3000/ -> /400x400/
-        url = url.replace(Regex("""/images/[^/]+/[^/]+/[0-9]+x[0-9]+/""")) { match ->
-            match.value.replace(Regex("""[0-9]+x[0-9]+"""), "400x400")
+        url = url.replace(SIMPLECAST_DIR_REGEX) { match ->
+            match.value.replace(DIMENSION_PATTERN_REGEX, "400x400")
         }
 
         // 4. NPR asset server: e.g. ?s=1400 -> ?s=400
         if (url.contains("media.npr.org")) {
-            url = url.replace(Regex("""[?&]s=\d+"""), "?s=400")
+            url = url.replace(NPR_SIZE_PARAM_REGEX, "?s=400")
             if (!url.contains("s=400") && !url.contains("?")) {
                 url = "$url?s=400"
             }
