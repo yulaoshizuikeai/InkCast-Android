@@ -725,7 +725,7 @@ fun SettingsDialog(
                     text = "恢复默认",
                     onClick = {
                         rsshubUrl = AppSettings.DEFAULT_RSSHUB_URL
-                        cfProxyUrl = ""
+                        cfProxyUrl = AppSettings.DEFAULT_CF_WORKER_URL
                     },
                     minHeight = 44
                 )

@@ -116,7 +116,7 @@ data class PlaybackProgress(
 
 data class AppSettings(
     val rsshubBaseUrl: String = DEFAULT_RSSHUB_URL,
-    val cfWorkerUrl: String = "",
+    val cfWorkerUrl: String = DEFAULT_CF_WORKER_URL,
     val playbackSpeed: Float = 1.0f
 ) {
     fun toJson(): JSONObject {
@@ -129,11 +129,12 @@ data class AppSettings(
 
     companion object {
         const val DEFAULT_RSSHUB_URL = "https://rsshub.rssforever.com"
+        const val DEFAULT_CF_WORKER_URL = "https://podcast.yunet.cfd"
 
         fun fromJson(json: JSONObject): AppSettings {
             return AppSettings(
                 rsshubBaseUrl = json.optString("rsshubBaseUrl", DEFAULT_RSSHUB_URL),
-                cfWorkerUrl = json.optString("cfWorkerUrl", ""),
+                cfWorkerUrl = if (json.has("cfWorkerUrl")) json.optString("cfWorkerUrl") else DEFAULT_CF_WORKER_URL,
                 playbackSpeed = json.optDouble("playbackSpeed", 1.0).toFloat()
             )
         }

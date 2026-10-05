@@ -88,6 +88,14 @@ class FeedResolverAgentTest {
         assertTrue(agent.isOverseasUrl("https://media.simplecast.com/audio.mp3"))
         assertTrue(agent.isOverseasUrl("https://dts.podtrac.com/redirect.mp3/example.com/audio.mp3"))
 
+        // BBC Audio MediaSelector and Akamai CDN
+        assertTrue(agent.isOverseasUrl("http://open.live.bbc.co.uk/mediaselector/6/redir/version/2.0/mediaset/audio/vpid/p0p2ygrc.mp3"))
+        assertTrue(agent.isOverseasUrl("https://bbcfmt.akamaized.net/media/audio.mp3"))
+
+        // NPR Audio via Spotify Podsights / Simplecast audio CDN
+        assertTrue(agent.isOverseasUrl("https://prfx.byspotify.com/e/play.podtrac.com/npr-510318/npr.simplecastaudio.com/audio.mp3"))
+        assertTrue(agent.isOverseasUrl("https://npr.simplecastaudio.com/episodes/123/default.mp3"))
+
         // Chinese domestic / direct hosts should NOT be marked as overseas
         assertFalse(agent.isOverseasUrl("https://feed.shengfm.cn/shengfm.xml"))
         assertFalse(agent.isOverseasUrl("https://feed.justpodfm.com/leftright.xml"))

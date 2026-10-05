@@ -62,8 +62,11 @@ class FeedResolverAgent(
         val OVERSEAS_DOMAINS = setOf(
             "npr.org",
             "simplecast.com",
+            "simplecastaudio.com",
             "spreaker.com",
+            "bbc.co.uk",
             "bbci.co.uk",
+            "bbcfmt.akamaized.net",
             "megaphone.fm",
             "traffic.megaphone.fm",
             "podbean.com",
@@ -73,6 +76,7 @@ class FeedResolverAgent(
             "omny.fm",
             "buzzsprout.com",
             "chrt.fm",
+            "chartable.com",
             "feedproxy.google.com",
             "dts.podtrac.com",
             "prx.org",
@@ -80,10 +84,17 @@ class FeedResolverAgent(
             "fireside.fm",
             "anchor.fm",
             "podtrac.com",
+            "pdst.fm",
             "rss.acast.com",
             "feed.podbean.com",
             "apple.com",
+            "mzstatic.com",
             "spotify.com",
+            "byspotify.com",
+            "swap.fm",
+            "mgln.ai",
+            "art19.com",
+            "simplecastcdn.com",
             "cloudfront.net",
             "akamaihd.net",
             "audiomeans.fr",
@@ -400,7 +411,7 @@ class FeedResolverAgent(
                                 val durationSec = parseDurationSeconds(itemDurationRaw)
                                 val durationFmt = formatDuration(durationSec)
                                 val episodeId = itemGuid.ifBlank { generateEpisodeId(feedId, finalAudioUrl, itemTitle) }
-                                val epImage = itemImageUrl.ifBlank { channelArtworkUrl }
+                                val epImage = toThumbnailUrl(itemImageUrl.ifBlank { channelArtworkUrl })
 
                                 episodes.add(
                                     Episode(
@@ -433,7 +444,7 @@ class FeedResolverAgent(
             description = cleanHtml(channelDescription),
             feedUrl = feedUrl,
             originalInput = originalInput,
-            artworkUrl = channelArtworkUrl,
+            artworkUrl = toThumbnailUrl(channelArtworkUrl),
             author = cleanHtml(channelAuthor)
         )
 
@@ -560,5 +571,35 @@ class FeedResolverAgent(
         }
 
         return if (trimmed.length > 20) trimmed.take(20) else trimmed
+    }
+
+    /**
+     * Converts high-resolution / full-sized podcast cover URLs into lightweight thumbnail URLs.
+     * Prevents massive 3000x3000 images from clogging memory and bandwidth on E-ink devices.
+     */
+    fun toThumbnailUrl(rawUrl: String): String {
+        if (rawUrl.isBlank()) return ""
+        var url = rawUrl.trim()
+
+        // 1. BBC ichef service: e.g. /images/ic/3000x3000/xxx.jpg -> /images/ic/400x400/xxx.jpg
+        url = url.replace(Regex("""/images/ic/(?:[0-9]+x[0-9]+|raw)/"""), "/images/ic/400x400/")
+
+        // 2. Apple Podcasts CDN (mzstatic): e.g. /600x600bb.jpg -> /300x300bb.jpg
+        url = url.replace("600x600bb", "300x300bb")
+
+        // 3. Simplecast CDN: e.g. /3000x3000/ -> /400x400/
+        url = url.replace(Regex("""/images/[^/]+/[^/]+/[0-9]+x[0-9]+/""")) { match ->
+            match.value.replace(Regex("""[0-9]+x[0-9]+"""), "400x400")
+        }
+
+        // 4. NPR asset server: e.g. ?s=1400 -> ?s=400
+        if (url.contains("media.npr.org")) {
+            url = url.replace(Regex("""[?&]s=\d+"""), "?s=400")
+            if (!url.contains("s=400") && !url.contains("?")) {
+                url = "$url?s=400"
+            }
+        }
+
+        return url
     }
 }
