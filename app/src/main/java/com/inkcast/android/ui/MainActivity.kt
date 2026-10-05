@@ -1282,7 +1282,7 @@ fun ModernSettingsTab(
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = "版本: 2.1.0 (Native Android 16 Edition)",
+                        text = "版本: 2.1.1 (Native Android 16 Edition)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
