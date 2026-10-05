@@ -94,7 +94,8 @@ class MainViewModel(
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
                 val result = withContext(ioDispatcher) {
-                    val xmlContent = resolverAgent.fetchXml(feed.feedUrl)
+                    val requestUrl = resolverAgent.applyProxyIfOverseas(feed.feedUrl, _uiState.value.settings.cfWorkerUrl)
+                    val xmlContent = resolverAgent.fetchXml(requestUrl)
                     resolverAgent.parseRssXml(
                         xmlContent = xmlContent,
                         feedUrl = feed.feedUrl,

@@ -146,12 +146,25 @@ class PlaybackService : MediaSessionService() {
         if (episodeId.isBlank()) return
 
         val currentPosition = p.currentPosition
-        val duration = p.duration.coerceAtLeast(0L)
+        val playerDuration = p.duration.coerceAtLeast(0L)
+        val finalDuration = if (playerDuration > 0L) {
+            playerDuration
+        } else {
+            val existing = prefsManager.getProgress(episodeId)
+            val fallbackEp = prefsManager.getCurrentEpisode()
+            if (existing != null && existing.durationMs > 0L) {
+                existing.durationMs
+            } else if (fallbackEp != null && fallbackEp.id == episodeId && fallbackEp.durationSeconds > 0L) {
+                fallbackEp.durationSeconds * 1000L
+            } else {
+                0L
+            }
+        }
 
         val progress = PlaybackProgress(
             episodeId = episodeId,
             positionMs = currentPosition,
-            durationMs = duration
+            durationMs = finalDuration
         )
         prefsManager.saveProgress(progress)
     }
@@ -190,6 +203,11 @@ class PlaybackService : MediaSessionService() {
                     .setTitle(lastEpisode.title)
                     .setArtist(lastEpisode.pubDate)
                     .setDescription(lastEpisode.description)
+                    .apply {
+                        if (lastEpisode.imageUrl.isNotBlank()) {
+                            setArtworkUri(android.net.Uri.parse(lastEpisode.imageUrl))
+                        }
+                    }
                     .build()
 
                 val item = MediaItem.Builder()

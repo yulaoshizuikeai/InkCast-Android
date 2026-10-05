@@ -4,9 +4,9 @@
 
 ## 部署信息
 - **Worker 名称**: `inkcast-proxy`
-- **账号**: `harlan0804`
-- **生产地址**: `https://inkcast-proxy.harlan0804.workers.dev`
-- **健康检查**: `https://inkcast-proxy.harlan0804.workers.dev/health`
+- **专属自定义域名**: **`https://podcast.yunet.cfd`**（免翻墙直连体验最佳）
+- **备用 Workers.dev 域名**: `https://inkcast-proxy.harlan0804.workers.dev`
+- **健康检查**: `https://podcast.yunet.cfd/health`
 
 ## 核心特性
 1. **HTTP Range 断点续传与拖动支持**：ExoPlayer 在拖动快进、续播时依赖 `206 Partial Content` 与 `Range: bytes=start-end`，本 Worker 原生透传并返回 `Content-Range` 与 `Accept-Ranges: bytes`。
@@ -17,13 +17,13 @@
 ## 接口使用说明
 - **音频/RSS 流代理**: 
   ```
-  GET https://inkcast-proxy.harlan0804.workers.dev/proxy/stream?url=<URL_ENCODED_TARGET>
+  GET https://podcast.yunet.cfd/proxy/stream?url=<URL_ENCODED_TARGET>
   ```
   示例：
   ```bash
-  curl -i "https://inkcast-proxy.harlan0804.workers.dev/proxy/stream?url=https%3A%2F%2Ffeeds.npr.org%2F510318%2Fpodcast.xml"
+  curl -i "https://podcast.yunet.cfd/proxy/stream?url=https%3A%2F%2Ffeeds.npr.org%2F510318%2Fpodcast.xml"
   ```
 - **Range 局部请求测试**:
   ```bash
-  curl -i -r 0-1023 "https://inkcast-proxy.harlan0804.workers.dev/proxy/stream?url=<MP3_URL>"
+  curl -i -r 0-1023 "https://podcast.yunet.cfd/proxy/stream?url=<MP3_URL>"
   ```

@@ -21,12 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +46,7 @@ import com.inkcast.android.data.model.AppSettings
 import com.inkcast.android.data.model.Episode
 import com.inkcast.android.data.model.PodcastFeed
 import com.inkcast.android.playback.PlaybackController
+import com.inkcast.android.ui.components.EInkAsyncImage
 import com.inkcast.android.ui.components.EpisodeItemRow
 import com.inkcast.android.ui.components.InkButton
 import com.inkcast.android.ui.components.InkCard
@@ -117,6 +118,8 @@ fun InkCastMainScreen(
     val durationMs by playbackController.durationMs.collectAsState()
     val playbackSpeed by playbackController.playbackSpeed.collectAsState()
 
+    var feedToDelete by remember { mutableStateOf<PodcastFeed?>(null) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -129,7 +132,8 @@ fun InkCastMainScreen(
             onSelectFeed = { viewModel.selectFeed(it) },
             onAddClick = { viewModel.openAddFeedDialog() },
             onSettingsClick = { viewModel.openSettingsDialog() },
-            onRefreshClick = { viewModel.refreshCurrentFeed() }
+            onRefreshClick = { viewModel.refreshCurrentFeed() },
+            onDeleteClick = { feed -> feedToDelete = feed }
         )
 
         // 2. Main Content Area (Episodes Paged List)
@@ -245,6 +249,7 @@ fun InkCastMainScreen(
         // 3. Persistent Stepped Bottom Playback Bar (>= 48dp buttons, 10s stepped refresh)
         InkBottomPlaybackBar(
             currentEpisode = currentPlayingEpisode,
+            selectedFeedArtwork = uiState.selectedFeed?.artworkUrl ?: "",
             isPlaying = isPlaying,
             steppedPositionMs = steppedPositionMs,
             durationMs = durationMs,
@@ -273,10 +278,49 @@ fun InkCastMainScreen(
             onSave = { newSettings -> viewModel.saveSettings(newSettings) }
         )
     }
+
+    // Delete Confirmation Dialog
+    feedToDelete?.let { feed ->
+        InkDialog(
+            title = "取消订阅确认",
+            onDismissRequest = { feedToDelete = null }
+        ) {
+            Column {
+                Text(
+                    text = "确定要取消订阅播客《${feed.title}》吗？",
+                    fontSize = 14.sp,
+                    color = InkBlack
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    InkButton(
+                        text = "保留",
+                        onClick = { feedToDelete = null },
+                        minHeight = 44,
+                        modifier = Modifier.width(80.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    InkButton(
+                        text = "确定取消",
+                        onClick = {
+                            viewModel.removeFeed(feed.id)
+                            feedToDelete = null
+                        },
+                        inverted = true,
+                        minHeight = 44
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
- * Top Header Bar containing title, action buttons and subscription selector chips.
+ * Top Header Bar containing title, action buttons, selected feed details, and subscription chips.
+ * Retains podcast cover art ("注意保留播客封面").
  */
 @Composable
 fun InkHeaderBar(
@@ -285,7 +329,8 @@ fun InkHeaderBar(
     onSelectFeed: (String) -> Unit,
     onAddClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onRefreshClick: () -> Unit
+    onRefreshClick: () -> Unit,
+    onDeleteClick: (PodcastFeed) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -338,6 +383,57 @@ fun InkHeaderBar(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // Selected Feed Info Banner with Cover Art
+        if (selectedFeed != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, InkBlack), RectangleShape)
+                    .background(InkWhite)
+                    .padding(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Preserved Podcast Cover Art
+                EInkAsyncImage(
+                    url = selectedFeed.artworkUrl,
+                    contentDescription = selectedFeed.title,
+                    modifier = Modifier.size(46.dp)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = selectedFeed.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = InkBlack
+                    )
+                    if (selectedFeed.author.isNotBlank()) {
+                        Text(
+                            text = "作者: ${selectedFeed.author}",
+                            fontSize = 11.sp,
+                            color = InkGrayDark,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                InkButton(
+                    text = "取消订阅",
+                    onClick = { onDeleteClick(selectedFeed) },
+                    minHeight = 36
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
         // Subscriptions Chip Row
         Row(
             modifier = Modifier
@@ -361,11 +457,12 @@ fun InkHeaderBar(
 /**
  * Persistent Stepped E-ink Bottom Playback Bar.
  * Strictly no dragging Seekbar, low-frequency 10-second stepped progress display,
- * and large physical control buttons (>= 48dp).
+ * cover art thumbnail, and large physical control buttons (>= 48dp).
  */
 @Composable
 fun InkBottomPlaybackBar(
     currentEpisode: Episode?,
+    selectedFeedArtwork: String,
     isPlaying: Boolean,
     steppedPositionMs: Long,
     durationMs: Long,
@@ -376,8 +473,12 @@ fun InkBottomPlaybackBar(
     onCycleSpeed: () -> Unit
 ) {
     val durationToUse = if (durationMs > 0) durationMs else (currentEpisode?.durationSeconds ?: 0L) * 1000L
-    val posStr = formatTime(steppedPositionMs)
-    val durStr = formatTime(durationToUse)
+    val hasHours = durationToUse >= 3600_000L || steppedPositionMs >= 3600_000L
+    val posStr = formatTime(steppedPositionMs, forceHours = hasHours)
+    val durStr = formatTime(durationToUse, forceHours = hasHours)
+
+    // Episode cover art or fallback to selected feed artwork
+    val coverUrl = currentEpisode?.imageUrl?.ifBlank { selectedFeedArtwork } ?: selectedFeedArtwork
 
     Column(
         modifier = Modifier
@@ -386,38 +487,54 @@ fun InkBottomPlaybackBar(
             .background(InkWhite)
             .padding(10.dp)
     ) {
-        // Episode Title
-        Text(
-            text = currentEpisode?.title ?: "【 暂无播放单集，请选择单集播放 】",
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = InkBlack
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Static Stepped Time Display (Discrete 10-second updates)
+        // Episode Details Row with Cover Art
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "进度: $posStr / $durStr",
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = InkBlack
-            )
-            Text(
-                text = if (isPlaying) "● 播放中" else "○ 已暂停",
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace,
-                color = InkBlack
-            )
+            if (coverUrl.isNotBlank()) {
+                EInkAsyncImage(
+                    url = coverUrl,
+                    contentDescription = currentEpisode?.title ?: "Cover",
+                    modifier = Modifier.size(44.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = currentEpisode?.title ?: "【 暂无播放单集，请选择单集播放 】",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = InkBlack
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Static Stepped Time Display (Discrete 10-second updates)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "进度: $posStr / $durStr",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = InkBlack
+                    )
+                    Text(
+                        text = if (isPlaying) "● 播放中" else "○ 已暂停",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = InkBlack
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -459,7 +576,7 @@ fun InkBottomPlaybackBar(
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // Speed toggle (1.0x / 1.2x / 1.5x / 2.0x)
+            // Speed toggle (1.0x / 1.2x / 1.5x)
             InkButton(
                 text = "${playbackSpeed}x",
                 onClick = onCycleSpeed,
@@ -522,6 +639,11 @@ fun AddFeedDialog(
                     onClick = { inputText = "忽左忽右" },
                     minHeight = 32
                 )
+                InkButton(
+                    text = "Planet Money",
+                    onClick = { inputText = "Planet Money" },
+                    minHeight = 32
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -581,13 +703,13 @@ fun SettingsDialog(
                 label = "Cloudflare Worker 代理根域名 (海外源代理):",
                 value = cfProxyUrl,
                 onValueChange = { cfProxyUrl = it },
-                placeholder = "例如: https://podcast-proxy.example.workers.dev (留空为直连)"
+                placeholder = "例如: https://podcast.yunet.cfd (留空为直连)"
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
             Text(
-                text = "* 配置 Worker 代理后，海外常见源 (NPR/BBC/Simplecast/Megaphone等) 的音频流将自动通过 Worker 进行分流加速。",
+                text = "* 配置 Worker 代理后，海外常见源 (NPR/BBC/Simplecast/Megaphone等) 的 RSS 拉取与音频流将自动通过 Worker 进行分流加速。",
                 fontSize = 11.sp,
                 color = InkGrayDark,
                 lineHeight = 15.sp
@@ -636,13 +758,13 @@ fun SettingsDialog(
     }
 }
 
-fun formatTime(ms: Long): String {
-    if (ms <= 0L) return "00:00"
+fun formatTime(ms: Long, forceHours: Boolean = false): String {
+    if (ms <= 0L) return if (forceHours) "00:00:00" else "00:00"
     val totalSeconds = ms / 1000L
     val h = totalSeconds / 3600L
     val m = (totalSeconds % 3600L) / 60L
     val s = totalSeconds % 60L
-    return if (h > 0) {
+    return if (h > 0 || forceHours) {
         String.format("%02d:%02d:%02d", h, m, s)
     } else {
         String.format("%02d:%02d", m, s)

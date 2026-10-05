@@ -11,19 +11,24 @@ class XmlPullParserTest {
 
     private val sampleRssXml = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+        <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/">
             <channel>
                 <title>InkCast Test Podcast</title>
                 <description>A podcast for testing E-ink RSS parser</description>
                 <link>https://example.com/podcast</link>
                 <itunes:author>InkCast Team</itunes:author>
-                <itunes:image href="https://example.com/cover.jpg"/>
+                <image>
+                    <url>https://example.com/cover.jpg</url>
+                    <title>Image Title Not Channel Title</title>
+                    <link>https://example.com</link>
+                </image>
                 <item>
                     <title>Episode 1: The E-ink Revolution</title>
                     <description>&lt;p&gt;Discussion on E-ink screens &amp; battery life.&lt;/p&gt;</description>
                     <pubDate>Mon, 01 Sep 2026 10:00:00 GMT</pubDate>
                     <enclosure url="https://traffic.megaphone.fm/test-ep1.mp3" length="12345678" type="audio/mpeg"/>
                     <itunes:duration>00:45:30</itunes:duration>
+                    <itunes:image href="https://example.com/ep1-cover.jpg"/>
                     <guid>ep-1-guid</guid>
                 </item>
                 <item>
@@ -51,6 +56,7 @@ class XmlPullParserTest {
         )
 
         val feed = result.feed
+        // Verify channel title is NOT overwritten by <image><title>
         assertEquals("InkCast Test Podcast", feed.title)
         assertEquals("A podcast for testing E-ink RSS parser", feed.description)
         assertEquals("InkCast Team", feed.author)
@@ -65,6 +71,7 @@ class XmlPullParserTest {
         assertEquals("Discussion on E-ink screens & battery life.", ep1.description)
         assertEquals(2730L, ep1.durationSeconds)
         assertEquals("45:30", ep1.durationFormatted)
+        assertEquals("https://example.com/ep1-cover.jpg", ep1.imageUrl)
         val expectedEp1Audio = "$cfWorker/proxy/stream?url=${URLEncoder.encode("https://traffic.megaphone.fm/test-ep1.mp3", "UTF-8")}"
         assertEquals(expectedEp1Audio, ep1.audioUrl)
 
@@ -74,5 +81,66 @@ class XmlPullParserTest {
         assertEquals(1800L, ep2.durationSeconds)
         assertEquals("30:00", ep2.durationFormatted)
         assertEquals("https://feed.shengfm.cn/ep2.mp3", ep2.audioUrl)
+        assertEquals("https://example.com/cover.jpg", ep2.imageUrl) // Falls back to channel cover
+    }
+
+    @Test
+    fun testParseRssXml_WithNestedChildXmlTagsInDescription() {
+        val agent = FeedResolverAgent()
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0">
+                <channel>
+                    <title>Nested Tags Podcast</title>
+                    <item>
+                        <title>Episode With Child Elements</title>
+                        <description>
+                            <p>First paragraph of notes.</p>
+                            <p>Second paragraph with <b>bold text</b>.</p>
+                        </description>
+                        <enclosure url="https://example.com/ep.mp3" type="audio/mpeg"/>
+                    </item>
+                </channel>
+            </rss>
+        """.trimIndent()
+
+        val result = agent.parseRssXml(xml, "https://example.com/rss", "", "")
+        assertEquals(1, result.episodes.size)
+        val ep = result.episodes[0]
+        assertTrue("Description should not be empty", ep.description.isNotBlank())
+        assertTrue("Should contain first paragraph text", ep.description.contains("First paragraph of notes."))
+        assertTrue("Should contain second paragraph text", ep.description.contains("Second paragraph with bold text."))
+    }
+
+    @Test
+    fun testParseRssXml_WithLeadingBom() {
+        val agent = FeedResolverAgent()
+        val xmlWithBom = "\uFEFF<?xml version=\"1.0\" encoding=\"UTF-8\"?><rss version=\"2.0\"><channel><title>BOM Podcast</title></channel></rss>"
+        val result = agent.parseRssXml(xmlWithBom, "https://example.com/rss", "", "")
+        assertEquals("BOM Podcast", result.feed.title)
+    }
+
+    @Test
+    fun testParseRssXml_ContentEncodedFallback() {
+        val agent = FeedResolverAgent()
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+                <channel>
+                    <title>Encoded Podcast</title>
+                    <item>
+                        <title>Encoded Episode</title>
+                        <description></description>
+                        <content:encoded><![CDATA[<p>Show notes inside CDATA encoded tag</p>]]></content:encoded>
+                        <enclosure url="https://example.com/ep.mp3" type="audio/mpeg"/>
+                    </item>
+                </channel>
+            </rss>
+        """.trimIndent()
+
+        val result = agent.parseRssXml(xml, "https://example.com/rss", "", "")
+        assertEquals(1, result.episodes.size)
+        val ep = result.episodes[0]
+        assertEquals("Show notes inside CDATA encoded tag", ep.description)
     }
 }

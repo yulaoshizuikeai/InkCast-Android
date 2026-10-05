@@ -9,7 +9,6 @@ import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -74,6 +73,14 @@ class FeedResolverAgentTest {
     }
 
     @Test
+    fun testShareTextWithTextBeforeGenericUrl() = runBlocking {
+        val input = "推荐一档好播客：https://feed.shengfm.cn/shengfm.xml 欢迎收听！"
+        val settings = AppSettings()
+        val resolved = agent.resolveFeedUrl(input, settings)
+        assertEquals("https://feed.shengfm.cn/shengfm.xml", resolved)
+    }
+
+    @Test
     fun testOverseasUrlDetection() {
         assertTrue(agent.isOverseasUrl("https://feeds.npr.org/510318/podcast.xml"))
         assertTrue(agent.isOverseasUrl("https://traffic.megaphone.fm/SC123456.mp3"))
@@ -85,6 +92,12 @@ class FeedResolverAgentTest {
         assertFalse(agent.isOverseasUrl("https://feed.shengfm.cn/shengfm.xml"))
         assertFalse(agent.isOverseasUrl("https://feed.justpodfm.com/leftright.xml"))
         assertFalse(agent.isOverseasUrl("https://rsshub.rssforever.com/xiaoyuzhou/podcast/123"))
+    }
+
+    @Test
+    fun testOverseasUrlWithSpacesAndParams() {
+        val messyUrl = "https://traffic.megaphone.fm/ep 1.mp3?title=你好&token=xyz"
+        assertTrue(agent.isOverseasUrl(messyUrl))
     }
 
     @Test

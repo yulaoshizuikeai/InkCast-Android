@@ -3,6 +3,9 @@ main = "index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Deployed to: https://inkcast-proxy.harlan0804.workers.dev
+# Custom Domain (Zone: yunet.cfd)
+# Direct access: https://podcast.yunet.cfd
+# Fallback workers.dev: https://inkcast-proxy.harlan0804.workers.dev
+
 [observability]
 enabled = true

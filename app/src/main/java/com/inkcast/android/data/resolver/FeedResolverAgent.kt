@@ -7,8 +7,8 @@ import com.inkcast.android.data.model.FeedResolveResult
 import com.inkcast.android.data.model.PodcastFeed
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -55,8 +55,8 @@ class FeedResolverAgent(
 
         // Regex patterns for smart sniffers
         val XIAOYUZHOU_REGEX = Regex("""(?:xiaoyuzhoufm|xiaoyuzhou)\.com/podcast/([a-zA-Z0-9]+)""")
-        val XIMALAYA_REGEX = Regex("""ximalaya\.com/(?:[a-zA-Z0-9_\-]+/)?(?:album|youshengshu)/(\d+)""")
-        val URL_PATTERN = Regex("""^https?://\S+""", RegexOption.IGNORE_CASE)
+        val XIMALAYA_REGEX = Regex("""ximalaya\.com/(?:[a-zA-Z0-9_\-]+/)?(?:album|youshengshu)/(\d+)|(?:albumId=)(\d+)""")
+        val GENERIC_URL_REGEX = Regex("""https?://[^\s<>"'\)]+""", RegexOption.IGNORE_CASE)
 
         // Known overseas podcast hosting domains requiring proxy分流 when proxy is enabled
         val OVERSEAS_DOMAINS = setOf(
@@ -81,18 +81,24 @@ class FeedResolverAgent(
             "anchor.fm",
             "podtrac.com",
             "rss.acast.com",
-            "feed.podbean.com"
+            "feed.podbean.com",
+            "apple.com",
+            "spotify.com",
+            "cloudfront.net",
+            "akamaihd.net",
+            "audiomeans.fr",
+            "iheart.com"
         )
     }
 
     /**
-     * Pipeline entry: Resolves user raw input string into a valid, reachable RSS feed URL.
+     * Pipeline entry: Resolves user raw input string into a valid, canonical RSS feed URL.
      */
     suspend fun resolveFeedUrl(rawInput: String, settings: AppSettings): String = withContext(ioDispatcher) {
         val input = rawInput.trim()
         require(input.isNotEmpty()) { "输入内容不能为空" }
 
-        // 1. Xiaoyuzhou link sniffer
+        // 1. Xiaoyuzhou link sniffer (matches in share text or direct url)
         val xyzMatch = XIAOYUZHOU_REGEX.find(input)
         if (xyzMatch != null) {
             val podcastId = xyzMatch.groupValues[1]
@@ -100,36 +106,57 @@ class FeedResolverAgent(
             return@withContext "$rsshubBase/xiaoyuzhou/podcast/$podcastId"
         }
 
-        // 2. Ximalaya link sniffer
+        // 2. Ximalaya link sniffer (matches album path or albumId query)
         val xmlyMatch = XIMALAYA_REGEX.find(input)
         if (xmlyMatch != null) {
-            val albumId = xmlyMatch.groupValues[1]
+            val albumId = xmlyMatch.groupValues[1].ifEmpty { xmlyMatch.groupValues[2] }
             val rsshubBase = settings.rsshubBaseUrl.trimEnd('/')
             return@withContext "$rsshubBase/ximalaya/album/$albumId"
         }
 
-        // 3. Check if it's already an HTTP / HTTPS URL
-        if (URL_PATTERN.containsMatchIn(input)) {
-            // Check if it's an overseas feed and user has CF proxy configured
-            return@withContext applyProxyIfOverseas(input, settings.cfWorkerUrl)
+        // 3. Check if any HTTP / HTTPS URL is embedded in input
+        val urlMatch = GENERIC_URL_REGEX.find(input)
+        if (urlMatch != null) {
+            val extractedUrl = urlMatch.value
+
+            // Re-check extracted URL against Xiaoyuzhou / Ximalaya patterns
+            val subXyz = XIAOYUZHOU_REGEX.find(extractedUrl)
+            if (subXyz != null) {
+                val podcastId = subXyz.groupValues[1]
+                val rsshubBase = settings.rsshubBaseUrl.trimEnd('/')
+                return@withContext "$rsshubBase/xiaoyuzhou/podcast/$podcastId"
+            }
+
+            val subXmly = XIMALAYA_REGEX.find(extractedUrl)
+            if (subXmly != null) {
+                val albumId = subXmly.groupValues[1].ifEmpty { subXmly.groupValues[2] }
+                val rsshubBase = settings.rsshubBaseUrl.trimEnd('/')
+                return@withContext "$rsshubBase/ximalaya/album/$albumId"
+            }
+
+            // Standard direct HTTP/HTTPS XML link
+            return@withContext extractedUrl
         }
 
         // 4. Non-URL input: Fallback to Apple Podcasts CN Search API
-        val searchResult = searchApplePodcastsCn(input)
-        return@withContext applyProxyIfOverseas(searchResult, settings.cfWorkerUrl)
+        searchApplePodcastsCn(input)
     }
 
     /**
-     * Full resolve & fetch: resolves raw input and pulls complete feed metadata + episode list.
+     * Full resolve & fetch: resolves raw input, applies proxy to request if overseas,
+     * pulls complete feed metadata + episode list.
      */
     suspend fun resolveAndFetch(rawInput: String, settings: AppSettings): FeedResolveResult = withContext(ioDispatcher) {
-        val resolvedUrl = resolveFeedUrl(rawInput, settings)
-        Log.d(TAG, "Resolved '$rawInput' to '$resolvedUrl'")
+        val canonicalFeedUrl = resolveFeedUrl(rawInput, settings)
+        Log.d(TAG, "Resolved '$rawInput' to canonical '$canonicalFeedUrl'")
 
-        val xmlContent = fetchXml(resolvedUrl)
+        // Proxy the RSS XML fetch request if overseas and proxy configured
+        val fetchUrl = applyProxyIfOverseas(canonicalFeedUrl, settings.cfWorkerUrl)
+        val xmlContent = fetchXml(fetchUrl)
+
         parseRssXml(
             xmlContent = xmlContent,
-            feedUrl = resolvedUrl,
+            feedUrl = canonicalFeedUrl,
             originalInput = rawInput,
             cfWorkerUrl = settings.cfWorkerUrl
         )
@@ -154,15 +181,34 @@ class FeedResolverAgent(
     }
 
     /**
-     * Fallback to Apple Podcasts CN Search API for Chinese/English keywords without VPN.
-     * https://itunes.apple.com/search?term=${encode(input)}&media=podcast&country=CN&limit=1
+     * Fallback to Apple Podcasts Search API for Chinese/English keywords without VPN.
+     * Tries Apple CN first: https://itunes.apple.com/search?term=${encode(input)}&media=podcast&country=CN&limit=1
+     * If 0 results, fallbacks to global search without country parameter.
      */
     suspend fun searchApplePodcastsCn(query: String): String = withContext(ioDispatcher) {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
-        val itunesUrl = "https://itunes.apple.com/search?term=$encodedQuery&media=podcast&country=CN&limit=1"
+        val itunesCnUrl = "https://itunes.apple.com/search?term=$encodedQuery&media=podcast&country=CN&limit=1"
 
+        try {
+            val feedUrl = executeItunesSearch(itunesCnUrl)
+            if (feedUrl.isNotBlank()) return@withContext feedUrl
+        } catch (_: Exception) {
+            // Fall through to global search
+        }
+
+        // Global fallback search without country parameter
+        val itunesGlobalUrl = "https://itunes.apple.com/search?term=$encodedQuery&media=podcast&limit=1"
+        val fallbackFeedUrl = executeItunesSearch(itunesGlobalUrl)
+        if (fallbackFeedUrl.isNotBlank()) {
+            return@withContext fallbackFeedUrl
+        }
+
+        throw NoSuchElementException("未在 Apple Podcasts 检索到名为 \"$query\" 的播客")
+    }
+
+    private fun executeItunesSearch(url: String): String {
         val request = Request.Builder()
-            .url(itunesUrl)
+            .url(url)
             .header("User-Agent", "InkCast/2.0")
             .build()
 
@@ -175,33 +221,30 @@ class FeedResolverAgent(
 
         val json = JSONObject(jsonStr)
         val resultCount = json.optInt("resultCount", 0)
-        if (resultCount <= 0) {
-            throw NoSuchElementException("未在 Apple Podcasts (中国区) 检索到名为 \"$query\" 的播客")
-        }
+        if (resultCount <= 0) return ""
 
         val results = json.getJSONArray("results")
+        if (results.length() == 0) return ""
+
         val firstItem = results.getJSONObject(0)
-        val feedUrl = firstItem.optString("feedUrl", "")
-
-        if (feedUrl.isBlank()) {
-            throw NoSuchElementException("找到播客 \"$query\"，但未包含公开 feedUrl")
-        }
-
-        feedUrl
+        return firstItem.optString("feedUrl", "").trim()
     }
 
     /**
      * Checks if the given URL belongs to overseas hosting domains.
+     * Uses robust host parsing that does not throw on spaces or unencoded characters.
      */
     fun isOverseasUrl(url: String): Boolean {
-        return try {
-            val uri = URI(url)
-            val host = uri.host?.lowercase() ?: return false
-            OVERSEAS_DOMAINS.any { domain ->
-                host == domain || host.endsWith(".$domain")
-            }
+        if (url.isBlank()) return false
+        val host = try {
+            url.toHttpUrlOrNull()?.host?.lowercase()
+                ?: URI(url).host?.lowercase()
         } catch (_: Exception) {
-            false
+            Regex("""https?://([^/:\s]+)""").find(url)?.groupValues?.get(1)?.lowercase()
+        } ?: return false
+
+        return OVERSEAS_DOMAINS.any { domain ->
+            host == domain || host.endsWith(".$domain")
         }
     }
 
@@ -234,7 +277,10 @@ class FeedResolverAgent(
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = true
         val parser = factory.newPullParser()
-        parser.setInput(StringReader(xmlContent))
+
+        // Strip leading UTF-8 BOM or whitespace if present
+        val sanitizedXml = xmlContent.trim().removePrefix("\uFEFF")
+        parser.setInput(StringReader(sanitizedXml))
 
         var eventType = parser.eventType
 
@@ -256,6 +302,7 @@ class FeedResolverAgent(
         var itemAudioUrl = ""
         var itemDurationRaw = ""
         var itemGuid = ""
+        var itemImageUrl = ""
 
         while (eventType != XmlPullParser.END_DOCUMENT) {
             val tagName = parser.name ?: ""
@@ -274,55 +321,69 @@ class FeedResolverAgent(
                             itemAudioUrl = ""
                             itemDurationRaw = ""
                             itemGuid = ""
+                            itemImageUrl = ""
                         }
                         inItem -> {
                             when {
                                 tagName.equals("title", ignoreCase = true) -> {
-                                    itemTitle = parser.nextTextSafely()
+                                    itemTitle = readTextSafely(parser)
                                 }
-                                tagName.equals("description", ignoreCase = true) ||
-                                        tagName.equals("summary", ignoreCase = true) -> {
+                                tagName.equals("itunes:title", ignoreCase = true) && itemTitle.isBlank() -> {
+                                    itemTitle = readTextSafely(parser)
+                                }
+                                tagName.equals("description", ignoreCase = true) -> {
                                     if (itemDescription.isBlank()) {
-                                        itemDescription = parser.nextTextSafely()
+                                        itemDescription = readTextSafely(parser)
+                                    }
+                                }
+                                tagName.equals("summary", ignoreCase = true) ||
+                                        tagName.equals("encoded", ignoreCase = true) -> {
+                                    if (itemDescription.isBlank()) {
+                                        itemDescription = readTextSafely(parser)
                                     }
                                 }
                                 tagName.equals("pubDate", ignoreCase = true) -> {
-                                    itemPubDate = parser.nextTextSafely()
+                                    itemPubDate = readTextSafely(parser)
                                 }
                                 tagName.equals("guid", ignoreCase = true) -> {
-                                    itemGuid = parser.nextTextSafely()
+                                    itemGuid = readTextSafely(parser)
                                 }
                                 tagName.equals("duration", ignoreCase = true) -> {
-                                    itemDurationRaw = parser.nextTextSafely()
+                                    itemDurationRaw = readTextSafely(parser)
+                                }
+                                tagName.equals("image", ignoreCase = true) -> {
+                                    val href = parser.getAttributeValue(null, "href")
+                                    if (!href.isNullOrBlank()) {
+                                        itemImageUrl = href.trim()
+                                    }
                                 }
                                 tagName.equals("enclosure", ignoreCase = true) -> {
                                     val urlAttr = parser.getAttributeValue(null, "url")
                                     if (!urlAttr.isNullOrBlank()) {
-                                        itemAudioUrl = urlAttr
+                                        itemAudioUrl = urlAttr.trim()
                                     }
                                 }
                             }
                         }
                         inChannel && !inItem -> {
                             when {
-                                tagName.equals("title", ignoreCase = true) -> {
-                                    channelTitle = parser.nextTextSafely()
+                                tagName.equals("title", ignoreCase = true) && channelTitle.isBlank() -> {
+                                    channelTitle = readTextSafely(parser)
                                 }
-                                tagName.equals("description", ignoreCase = true) -> {
-                                    channelDescription = parser.nextTextSafely()
+                                tagName.equals("description", ignoreCase = true) && channelDescription.isBlank() -> {
+                                    channelDescription = readTextSafely(parser)
                                 }
-                                tagName.equals("author", ignoreCase = true) -> {
-                                    channelAuthor = parser.nextTextSafely()
+                                tagName.equals("author", ignoreCase = true) && channelAuthor.isBlank() -> {
+                                    channelAuthor = readTextSafely(parser)
                                 }
                                 tagName.equals("image", ignoreCase = true) -> {
-                                    // Could be <itunes:image href="..."> or <image><url>...</url></image>
                                     val href = parser.getAttributeValue(null, "href")
                                     if (!href.isNullOrBlank()) {
-                                        channelArtworkUrl = href
+                                        channelArtworkUrl = href.trim()
                                     }
                                 }
                                 tagName.equals("url", ignoreCase = true) && channelArtworkUrl.isBlank() -> {
-                                    channelArtworkUrl = parser.nextTextSafely()
+                                    channelArtworkUrl = readTextSafely(parser)
                                 }
                             }
                         }
@@ -339,6 +400,7 @@ class FeedResolverAgent(
                                 val durationSec = parseDurationSeconds(itemDurationRaw)
                                 val durationFmt = formatDuration(durationSec)
                                 val episodeId = itemGuid.ifBlank { generateEpisodeId(feedId, finalAudioUrl, itemTitle) }
+                                val epImage = itemImageUrl.ifBlank { channelArtworkUrl }
 
                                 episodes.add(
                                     Episode(
@@ -349,7 +411,8 @@ class FeedResolverAgent(
                                         audioUrl = finalAudioUrl,
                                         pubDate = sanitizePubDate(itemPubDate),
                                         durationSeconds = durationSec,
-                                        durationFormatted = durationFmt
+                                        durationFormatted = durationFmt,
+                                        imageUrl = epImage
                                     )
                                 )
                             }
@@ -377,12 +440,33 @@ class FeedResolverAgent(
         return FeedResolveResult(feed = feed, episodes = episodes)
     }
 
-    private fun XmlPullParser.nextTextSafely(): String {
-        return try {
-            nextText().trim()
-        } catch (_: Exception) {
-            ""
+    /**
+     * Safely reads text from the current element.
+     * Unlike XmlPullParser.nextText() which throws when encountering inner child XML tags (like <p>, <b>, <br/>),
+     * this method collects all inner text nodes and CDATA until the element's matching END_TAG.
+     */
+    private fun readTextSafely(parser: XmlPullParser): String {
+        val targetDepth = parser.depth
+        val sb = StringBuilder()
+        var event = parser.next()
+
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> {
+                    sb.append(parser.text)
+                }
+                XmlPullParser.ENTITY_REF -> {
+                    sb.append(parser.text)
+                }
+            }
+
+            if (parser.depth == targetDepth && event == XmlPullParser.END_TAG) {
+                break
+            }
+            event = parser.next()
         }
+
+        return sb.toString().trim()
     }
 
     fun generateFeedId(feedUrl: String): String {
@@ -462,13 +546,19 @@ class FeedResolverAgent(
 
     private fun sanitizePubDate(rawDate: String): String {
         val trimmed = rawDate.trim()
-        if (trimmed.length > 25) {
-            // Cut off time zone details if too long: e.g. "Mon, 18 Sep 2026 07:00:00 +0000" -> "2026-09-18" or clean slice
-            val parts = trimmed.split(" ")
-            if (parts.size >= 4) {
-                return "${parts[1]} ${parts[2]} ${parts[3]}"
-            }
+        if (trimmed.isEmpty()) return ""
+
+        // ISO-8601 date handling: 2026-09-01T... -> 2026-09-01
+        if (trimmed.contains("T") && trimmed.contains("-")) {
+            return trimmed.substringBefore("T")
         }
-        return trimmed
+
+        // Standard RFC 2822 date handling: "Mon, 01 Sep 2026 10:00:00 GMT" -> "01 Sep 2026"
+        val parts = trimmed.split(" ")
+        if (parts.size >= 4 && parts[0].endsWith(",")) {
+            return "${parts[1]} ${parts[2]} ${parts[3]}"
+        }
+
+        return if (trimmed.length > 20) trimmed.take(20) else trimmed
     }
 }

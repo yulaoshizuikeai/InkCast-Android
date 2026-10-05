@@ -2,6 +2,7 @@ package com.inkcast.android.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -23,16 +24,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * Controller bridge connecting Compose UI to the background MediaSessionService.
  * Enforces discrete stepped updates for E-ink screen friendliness.
  */
-class PlaybackController(private val context: Context) {
+class PlaybackController(context: Context) {
 
     companion object {
         private const val TAG = "PlaybackController"
-        val SPEED_STEPS = listOf(1.0f, 1.2f, 1.5f, 2.0f)
+        val SPEED_STEPS = listOf(1.0f, 1.2f, 1.5f)
     }
 
-    private val prefsManager = PreferencesManager(context)
+    private val appContext = context.applicationContext
+    private val prefsManager = PreferencesManager(appContext)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
+    private var pendingPlayEpisode: Episode? = null
 
     private val _currentEpisode = MutableStateFlow<Episode?>(null)
     val currentEpisode: StateFlow<Episode?> = _currentEpisode.asStateFlow()
@@ -76,14 +79,19 @@ class PlaybackController(private val context: Context) {
 
     private fun initMediaController() {
         val sessionToken = SessionToken(
-            context,
-            ComponentName(context, PlaybackService::class.java)
+            appContext,
+            ComponentName(appContext, PlaybackService::class.java)
         )
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
+        controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
         controllerFuture?.addListener({
             try {
                 mediaController = controllerFuture?.get()
                 setupControllerListener()
+                // If a play request was made while connecting, execute it now
+                pendingPlayEpisode?.let { episode ->
+                    pendingPlayEpisode = null
+                    playEpisode(episode)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error connecting MediaController", e)
             }
@@ -95,7 +103,10 @@ class PlaybackController(private val context: Context) {
 
         _isPlaying.value = controller.isPlaying
         _playbackSpeed.value = controller.playbackParameters.speed
-        _durationMs.value = controller.duration.coerceAtLeast(0L)
+        val dur = controller.duration.coerceAtLeast(0L)
+        if (dur > 0L) {
+            _durationMs.value = dur
+        }
         updateSteppedPosition(isManualSeekOrPause = true)
 
         controller.addListener(object : Player.Listener {
@@ -117,7 +128,10 @@ class PlaybackController(private val context: Context) {
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
-                _durationMs.value = (controller.duration).coerceAtLeast(0L)
+                val currentDur = controller.duration.coerceAtLeast(0L)
+                if (currentDur > 0L) {
+                    _durationMs.value = currentDur
+                }
                 updateSteppedPosition(isManualSeekOrPause = true)
             }
 
@@ -148,7 +162,15 @@ class PlaybackController(private val context: Context) {
     }
 
     fun playEpisode(episode: Episode) {
-        val controller = mediaController ?: return
+        val controller = mediaController
+        if (controller == null) {
+            // Controller not yet connected; queue and execute upon connection
+            pendingPlayEpisode = episode
+            _currentEpisode.value = episode
+            prefsManager.saveCurrentEpisode(episode)
+            return
+        }
+
         _currentEpisode.value = episode
         prefsManager.saveCurrentEpisode(episode)
 
@@ -160,6 +182,11 @@ class PlaybackController(private val context: Context) {
             .setTitle(episode.title)
             .setArtist(episode.pubDate)
             .setDescription(episode.description)
+            .apply {
+                if (episode.imageUrl.isNotBlank()) {
+                    setArtworkUri(Uri.parse(episode.imageUrl))
+                }
+            }
             .build()
 
         val item = MediaItem.Builder()
@@ -221,5 +248,6 @@ class PlaybackController(private val context: Context) {
         mainHandler.removeCallbacks(lowFrequencyPoller)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         mediaController = null
+        pendingPlayEpisode = null
     }
 }
