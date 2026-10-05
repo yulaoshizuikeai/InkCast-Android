@@ -117,13 +117,17 @@ data class PlaybackProgress(
 data class AppSettings(
     val rsshubBaseUrl: String = DEFAULT_RSSHUB_URL,
     val cfWorkerUrl: String = DEFAULT_CF_WORKER_URL,
-    val playbackSpeed: Float = 1.0f
+    val playbackSpeed: Float = 1.0f,
+    val darkMode: Boolean? = null, // null: follow system, true: dark, false: light
+    val dynamicColor: Boolean = true
 ) {
     fun toJson(): JSONObject {
         return JSONObject().apply {
             put("rsshubBaseUrl", rsshubBaseUrl)
             put("cfWorkerUrl", cfWorkerUrl)
             put("playbackSpeed", playbackSpeed.toDouble())
+            if (darkMode != null) put("darkMode", darkMode)
+            put("dynamicColor", dynamicColor)
         }
     }
 
@@ -135,7 +139,9 @@ data class AppSettings(
             return AppSettings(
                 rsshubBaseUrl = json.optString("rsshubBaseUrl", DEFAULT_RSSHUB_URL),
                 cfWorkerUrl = if (json.has("cfWorkerUrl")) json.optString("cfWorkerUrl") else DEFAULT_CF_WORKER_URL,
-                playbackSpeed = json.optDouble("playbackSpeed", 1.0).toFloat()
+                playbackSpeed = json.optDouble("playbackSpeed", 1.0).toFloat(),
+                darkMode = if (json.has("darkMode")) json.optBoolean("darkMode") else null,
+                dynamicColor = json.optBoolean("dynamicColor", true)
             )
         }
     }

@@ -16,19 +16,22 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.inkcast.android.data.local.PreferencesManager
 import com.inkcast.android.data.model.Episode
+import com.inkcast.android.data.model.PlaybackProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Controller bridge connecting Compose UI to the background MediaSessionService.
- * Enforces discrete stepped updates for E-ink screen friendliness.
+ * Modern native Android 16 implementation with smooth 500ms continuous position updates,
+ * high-precision slider seeking, and versatile playback rate adjustments.
  */
 class PlaybackController(context: Context) {
 
     companion object {
         private const val TAG = "PlaybackController"
-        val SPEED_STEPS = listOf(1.0f, 1.2f, 1.5f)
+        val SPEED_STEPS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+        private const val SMOOTH_POLL_INTERVAL_MS = 500L
     }
 
     private val appContext = context.applicationContext
@@ -43,9 +46,12 @@ class PlaybackController(context: Context) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    // Stepped position in ms (only updates at 10-second intervals or upon seek/pause to minimize E-ink redraws)
-    private val _steppedPositionMs = MutableStateFlow(0L)
-    val steppedPositionMs: StateFlow<Long> = _steppedPositionMs.asStateFlow()
+    // Smooth real-time position in milliseconds
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
+    // Backward compatibility alias for any existing references
+    val steppedPositionMs: StateFlow<Long> get() = positionMs
 
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
@@ -54,12 +60,14 @@ class PlaybackController(context: Context) {
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val lowFrequencyPoller = object : Runnable {
+    private var lastSavedPositionMs = 0L
+
+    private val smoothPositionPoller = object : Runnable {
         override fun run() {
-            updateSteppedPosition(isManualSeekOrPause = false)
+            updatePosition()
             if (_isPlaying.value) {
-                // Poll every 10 seconds for E-ink stepped refresh
-                mainHandler.postDelayed(this, 10000L)
+                // Poll every 500ms for fluid progress bar / slider animation
+                mainHandler.postDelayed(this, SMOOTH_POLL_INTERVAL_MS)
             }
         }
     }
@@ -70,7 +78,7 @@ class PlaybackController(context: Context) {
         _currentEpisode.value?.let { ep ->
             val savedProgress = prefsManager.getProgress(ep.id)
             if (savedProgress != null) {
-                _steppedPositionMs.value = (savedProgress.positionMs / 10000L) * 10000L
+                _positionMs.value = savedProgress.positionMs
                 _durationMs.value = savedProgress.durationMs
             }
         }
@@ -107,17 +115,18 @@ class PlaybackController(context: Context) {
         if (dur > 0L) {
             _durationMs.value = dur
         }
-        updateSteppedPosition(isManualSeekOrPause = true)
+        updatePosition()
 
         controller.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
                 if (isPlaying) {
-                    mainHandler.removeCallbacks(lowFrequencyPoller)
-                    mainHandler.post(lowFrequencyPoller)
+                    mainHandler.removeCallbacks(smoothPositionPoller)
+                    mainHandler.post(smoothPositionPoller)
                 } else {
-                    mainHandler.removeCallbacks(lowFrequencyPoller)
-                    updateSteppedPosition(isManualSeekOrPause = true)
+                    mainHandler.removeCallbacks(smoothPositionPoller)
+                    updatePosition()
+                    persistCurrentProgress()
                 }
             }
 
@@ -132,7 +141,10 @@ class PlaybackController(context: Context) {
                 if (currentDur > 0L) {
                     _durationMs.value = currentDur
                 }
-                updateSteppedPosition(isManualSeekOrPause = true)
+                updatePosition()
+                if (playbackState == Player.STATE_ENDED) {
+                    persistCurrentProgress()
+                }
             }
 
             override fun onPositionDiscontinuity(
@@ -140,24 +152,39 @@ class PlaybackController(context: Context) {
                 newPosition: Player.PositionInfo,
                 reason: Int
             ) {
-                updateSteppedPosition(isManualSeekOrPause = true)
+                updatePosition()
             }
         })
     }
 
-    private fun updateSteppedPosition(isManualSeekOrPause: Boolean) {
+    private fun updatePosition() {
         val controller = mediaController ?: return
         val pos = controller.currentPosition.coerceAtLeast(0L)
         val dur = controller.duration.coerceAtLeast(0L)
         if (dur > 0) {
             _durationMs.value = dur
         }
+        _positionMs.value = pos
 
-        if (isManualSeekOrPause) {
-            _steppedPositionMs.value = pos
-        } else {
-            // Round down to 10-second discrete steps to eliminate unnecessary E-ink screen refreshes
-            _steppedPositionMs.value = (pos / 10000L) * 10000L
+        // Periodically save progress to local disk every 5 seconds
+        if (kotlin.math.abs(pos - lastSavedPositionMs) >= 5000L) {
+            persistCurrentProgress()
+        }
+    }
+
+    private fun persistCurrentProgress() {
+        val ep = _currentEpisode.value ?: return
+        val pos = _positionMs.value
+        val dur = _durationMs.value
+        if (pos > 0 || dur > 0) {
+            lastSavedPositionMs = pos
+            prefsManager.saveProgress(
+                PlaybackProgress(
+                    episodeId = ep.id,
+                    positionMs = pos,
+                    durationMs = dur
+                )
+            )
         }
     }
 
@@ -199,17 +226,17 @@ class PlaybackController(context: Context) {
         controller.prepare()
         controller.play()
 
-        updateSteppedPosition(isManualSeekOrPause = true)
+        updatePosition()
     }
 
     fun togglePlayPause() {
         val controller = mediaController ?: return
         if (controller.isPlaying) {
             controller.pause()
-            updateSteppedPosition(isManualSeekOrPause = true)
+            updatePosition()
+            persistCurrentProgress()
         } else {
             if (controller.mediaItemCount == 0) {
-                // If controller has no media item, try playing currentEpisode
                 _currentEpisode.value?.let { playEpisode(it) }
             } else {
                 controller.play()
@@ -217,11 +244,22 @@ class PlaybackController(context: Context) {
         }
     }
 
+    fun seekTo(positionMs: Long) {
+        val controller = mediaController ?: return
+        val dur = controller.duration
+        val target = positionMs.coerceAtLeast(0L)
+        val newPos = if (dur > 0) target.coerceAtMost(dur) else target
+        controller.seekTo(newPos)
+        _positionMs.value = newPos
+        persistCurrentProgress()
+    }
+
     fun seekBack15() {
         val controller = mediaController ?: return
         val newPos = (controller.currentPosition - 15000L).coerceAtLeast(0L)
         controller.seekTo(newPos)
-        updateSteppedPosition(isManualSeekOrPause = true)
+        _positionMs.value = newPos
+        persistCurrentProgress()
     }
 
     fun seekForward30() {
@@ -230,22 +268,27 @@ class PlaybackController(context: Context) {
         val target = controller.currentPosition + 30000L
         val newPos = if (dur > 0) target.coerceAtMost(dur) else target
         controller.seekTo(newPos)
-        updateSteppedPosition(isManualSeekOrPause = true)
+        _positionMs.value = newPos
+        persistCurrentProgress()
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        val controller = mediaController ?: return
+        controller.playbackParameters = PlaybackParameters(speed)
+        _playbackSpeed.value = speed
     }
 
     fun cyclePlaybackSpeed() {
-        val controller = mediaController ?: return
         val current = _playbackSpeed.value
         val currentIndex = SPEED_STEPS.indexOfFirst { kotlin.math.abs(it - current) < 0.05f }
         val nextIndex = if (currentIndex in 0 until SPEED_STEPS.size - 1) currentIndex + 1 else 0
         val nextSpeed = SPEED_STEPS[nextIndex]
-
-        controller.playbackParameters = PlaybackParameters(nextSpeed)
-        _playbackSpeed.value = nextSpeed
+        setPlaybackSpeed(nextSpeed)
     }
 
     fun release() {
-        mainHandler.removeCallbacks(lowFrequencyPoller)
+        persistCurrentProgress()
+        mainHandler.removeCallbacks(smoothPositionPoller)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         mediaController = null
         pendingPlayEpisode = null

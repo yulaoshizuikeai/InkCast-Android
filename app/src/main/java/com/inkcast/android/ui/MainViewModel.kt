@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.inkcast.android.data.local.PreferencesManager
 import com.inkcast.android.data.model.AppSettings
 import com.inkcast.android.data.model.Episode
+import com.inkcast.android.data.model.FeedResolveResult
 import com.inkcast.android.data.model.PlaybackProgress
 import com.inkcast.android.data.model.PodcastFeed
 import com.inkcast.android.data.resolver.FeedResolverAgent
@@ -18,14 +19,23 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import kotlin.math.ceil
 import kotlin.math.max
 
+enum class NavigationTab {
+    LIBRARY,
+    EXPLORE,
+    SETTINGS
+}
+
 data class MainUiState(
+    val currentTab: NavigationTab = NavigationTab.LIBRARY,
+    val isDetailOpen: Boolean = false,
+    val isPlayerSheetExpanded: Boolean = false,
     val subscribedFeeds: List<PodcastFeed> = emptyList(),
     val selectedFeed: PodcastFeed? = null,
     val allEpisodes: List<Episode> = emptyList(),
+    val episodeProgressMap: Map<String, PlaybackProgress> = emptyMap(),
     val currentPage: Int = 1,
     val itemsPerPage: Int = 6,
     val totalPages: Int = 1,
@@ -35,10 +45,11 @@ data class MainUiState(
     val isAddFeedDialogOpen: Boolean = false,
     val isSettingsDialogOpen: Boolean = false,
     val isResolvingFeed: Boolean = false,
+    val searchResolveResult: FeedResolveResult? = null,
     val settings: AppSettings = AppSettings()
 )
 
-class MainViewModel(
+class MainViewModel @JvmOverloads constructor(
     application: Application,
     private val resolverAgent: FeedResolverAgent = FeedResolverAgent.getInstance(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
@@ -76,6 +87,27 @@ class MainViewModel(
         }
     }
 
+    fun setCurrentTab(tab: NavigationTab) {
+        _uiState.update { it.copy(currentTab = tab, isDetailOpen = false) }
+    }
+
+    fun openPodcastDetail(feed: PodcastFeed) {
+        selectFeed(feed.id)
+        _uiState.update { it.copy(isDetailOpen = true) }
+    }
+
+    fun closePodcastDetail() {
+        _uiState.update { it.copy(isDetailOpen = false) }
+    }
+
+    fun openPlayerSheet() {
+        _uiState.update { it.copy(isPlayerSheetExpanded = true) }
+    }
+
+    fun closePlayerSheet() {
+        _uiState.update { it.copy(isPlayerSheetExpanded = false) }
+    }
+
     fun selectFeed(feedId: String) {
         val feed = _uiState.value.subscribedFeeds.find { it.id == feedId } ?: return
         prefsManager.setSelectedFeedId(feedId)
@@ -104,13 +136,18 @@ class MainViewModel(
                     )
                 }
 
-                val episodes = result.episodes
+                val episodes = result.episodes.take(20)
+                val progresses = withContext(ioDispatcher) {
+                    episodes.mapNotNull { ep -> prefsManager.getProgress(ep.id) }
+                        .associateBy { it.episodeId }
+                }
                 val totalPages = max(1, ceil(episodes.size.toDouble() / ITEMS_PER_PAGE).toInt())
                 val paged = getPageSlice(episodes, 1, ITEMS_PER_PAGE)
 
                 _uiState.update {
                     it.copy(
                         allEpisodes = episodes,
+                        episodeProgressMap = progresses,
                         currentPage = 1,
                         totalPages = totalPages,
                         pagedEpisodes = paged,
@@ -182,7 +219,11 @@ class MainViewModel(
                 val updatedFeeds = prefsManager.getSubscribedFeeds()
                 prefsManager.setSelectedFeedId(result.feed.id)
 
-                val episodes = result.episodes
+                val episodes = result.episodes.take(20)
+                val progresses = withContext(ioDispatcher) {
+                    episodes.mapNotNull { ep -> prefsManager.getProgress(ep.id) }
+                        .associateBy { it.episodeId }
+                }
                 val totalPages = max(1, ceil(episodes.size.toDouble() / ITEMS_PER_PAGE).toInt())
                 val paged = getPageSlice(episodes, 1, ITEMS_PER_PAGE)
 
@@ -191,11 +232,13 @@ class MainViewModel(
                         subscribedFeeds = updatedFeeds,
                         selectedFeed = result.feed,
                         allEpisodes = episodes,
+                        episodeProgressMap = progresses,
                         currentPage = 1,
                         totalPages = totalPages,
                         pagedEpisodes = paged,
                         isResolvingFeed = false,
-                        isAddFeedDialogOpen = false
+                        isAddFeedDialogOpen = false,
+                        searchResolveResult = null
                     )
                 }
             } catch (e: Exception) {
@@ -208,6 +251,50 @@ class MainViewModel(
                 }
             }
         }
+    }
+
+    fun searchAndResolve(query: String) {
+        val input = query.trim()
+        if (input.isBlank()) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isResolvingFeed = true, errorMessage = null) }
+            try {
+                val result = withContext(ioDispatcher) {
+                    resolverAgent.resolveAndFetch(input, _uiState.value.settings)
+                }
+                val trimmedResult = result.copy(episodes = result.episodes.take(20))
+                _uiState.update {
+                    it.copy(
+                        isResolvingFeed = false,
+                        searchResolveResult = trimmedResult
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to resolve search '$input'", e)
+                _uiState.update {
+                    it.copy(
+                        isResolvingFeed = false,
+                        errorMessage = "智能解析失败: ${e.message ?: "未找到匹配播客"}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun subscribeFromExplore(feed: PodcastFeed) {
+        prefsManager.addFeed(feed)
+        val updatedFeeds = prefsManager.getSubscribedFeeds()
+        _uiState.update {
+            it.copy(
+                subscribedFeeds = updatedFeeds,
+                searchResolveResult = null
+            )
+        }
+    }
+
+    fun clearSearchResolveResult() {
+        _uiState.update { it.copy(searchResolveResult = null) }
     }
 
     fun removeFeed(feedId: String) {
@@ -223,7 +310,8 @@ class MainViewModel(
                 allEpisodes = emptyList(),
                 pagedEpisodes = emptyList(),
                 currentPage = 1,
-                totalPages = 1
+                totalPages = 1,
+                isDetailOpen = if (it.selectedFeed?.id == feedId) false else it.isDetailOpen
             )
         }
 
@@ -253,7 +341,7 @@ class MainViewModel(
     }
 
     fun getProgressForEpisode(episodeId: String): PlaybackProgress? {
-        return prefsManager.getProgress(episodeId)
+        return _uiState.value.episodeProgressMap[episodeId] ?: prefsManager.getProgress(episodeId)
     }
 
     fun clearError() {

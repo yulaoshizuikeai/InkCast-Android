@@ -127,7 +127,9 @@ class PlaybackService : MediaSessionService() {
             .setChannelId(InkCastApp.PLAYBACK_CHANNEL_ID)
             .setChannelName(R.string.playback_channel_name)
             .setNotificationId(NOTIFICATION_ID)
-            .build()
+            .build().apply {
+                setSmallIcon(R.drawable.ic_notification)
+            }
         setMediaNotificationProvider(notificationProvider)
 
         Log.d(TAG, "PlaybackService created successfully with ExoPlayer & MediaSession")

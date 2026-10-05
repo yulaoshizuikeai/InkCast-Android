@@ -38,7 +38,7 @@ class PreferencesManager(context: Context) {
                 description = "《纽约时报》与 WBUR/NPR 联合经典情感专栏：讲述爱恋、失去、真情与救赎的动人故事。",
                 feedUrl = "https://rss.art19.com/modern-love",
                 originalInput = "https://rss.art19.com/modern-love",
-                artworkUrl = "https://image.simplecastcdn.com/images/db3c768b-254c-4291-946b-8216b0b2a2a1/fc848224-9871-4b5a-96fd-8f8f7c33d7cf/400x400/b335632ea69f3a0c9b6235dbc62ccad8a30c7462992ae74f00c3e1127c66d245ae168cdfa53cfc8d5d11293ce0a22e2a953ebe0017f32567b707e15ff71edd93.jpeg?aid=rss_feed",
+                artworkUrl = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/08/87/de/0887de16-2eb2-b99b-78b9-ca12fce8cf5d/mza_2798548197053957784.jpeg/600x600bb.jpg",
                 author = "The New York Times / WBUR"
             ),
             PodcastFeed(
@@ -56,7 +56,7 @@ class PreferencesManager(context: Context) {
                 description = "借助心理学与脑科学洞悉潜意识与情感规律，探索人类行为背后的真实心智。",
                 feedUrl = "https://feeds.simplecast.com/kwWc0lhf",
                 originalInput = "https://feeds.simplecast.com/kwWc0lhf",
-                artworkUrl = "https://image.simplecastcdn.com/images/5982e1b7-239c-4b89-81f9-49df1f33fdae/dd71b17c-82bb-441d-a979-e16975aebc1c/400x400/hbtilewshankarfinal_rgbsimplecast.jpg?aid=rss_feed",
+                artworkUrl = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/e2/18/b8/e218b838-b790-3a33-441f-c3772d9abbbf/mza_6896085647855199484.jpg/600x600bb.jpg",
                 author = "Hidden Brain, Shankar Vedantam"
             ),
             PodcastFeed(
@@ -74,7 +74,7 @@ class PreferencesManager(context: Context) {
                 description = "聚焦一首音乐如何触碰人们内心深处的生死离别、初恋、治愈与精神慰藉的真实自白。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/b008mj7p.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/b008mj7p.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0m1wvw4.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0m1wvw4.jpg",
                 author = "BBC Radio 4"
             ),
             PodcastFeed(
@@ -83,7 +83,7 @@ class PreferencesManager(context: Context) {
                 description = "扣人心弦的非凡人生自白，讲述真实个体的创伤自愈、逆境成长与深刻感情连接。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/p02s5rx7.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/p02s5rx7.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0p8wzfw.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0p8wzfw.jpg",
                 author = "BBC World Service"
             ),
             PodcastFeed(
@@ -92,7 +92,7 @@ class PreferencesManager(context: Context) {
                 description = "探索科学家人生旅途中的激情、挫折、童年回忆与人性执着，洋溢人文温度。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/b015sqc7.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/b015sqc7.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0m1wt7m.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0m1wt7m.jpg",
                 author = "BBC Radio 4"
             ),
             PodcastFeed(
@@ -101,7 +101,7 @@ class PreferencesManager(context: Context) {
                 description = "BBC 经典轻松日常对话，温和生活话题与词汇练习，无政治说教，适合随身听。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/p02pc9tn.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0hxqkd0.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0hxqkd0.jpg",
                 author = "BBC Radio"
             ),
 
@@ -130,7 +130,7 @@ class PreferencesManager(context: Context) {
                 description = "探讨全球数字科技、人工智能与互联网创新如何深刻改变普通人的生活与世界。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/p01plr2p.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/p01plr2p.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0kxnh0d.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0kxnh0d.jpg",
                 author = "BBC World Service"
             ),
             PodcastFeed(
@@ -139,7 +139,7 @@ class PreferencesManager(context: Context) {
                 description = "解答世界各地听众关于科技、人脑、日常科学的趣味脑洞，富有趣味与温度。",
                 feedUrl = "https://podcasts.files.bbci.co.uk/p04d42rc.rss",
                 originalInput = "https://podcasts.files.bbci.co.uk/p04d42rc.rss",
-                artworkUrl = "http://ichef.bbci.co.uk/images/ic/400x400/p0p7qtn7.jpg",
+                artworkUrl = "https://ichef.bbci.co.uk/images/ic/400x400/p0p7qtn7.jpg",
                 author = "BBC World Service"
             ),
 
@@ -174,13 +174,24 @@ class PreferencesManager(context: Context) {
         } else {
             // Remove political feeds like Up First if present
             val filtered = currentFeeds.filterNot { it.id == "preset_npr_up_first" || it.feedUrl.contains("510318") }
-            val existingIds = filtered.map { it.id }.toSet()
-            val existingUrls = filtered.map { it.feedUrl }.toSet()
+            val presetMap = PRESET_FEEDS.associateBy { it.id }
+            var changed = filtered.size != currentFeeds.size
+            val updated = filtered.map { feed ->
+                val preset = presetMap[feed.id]
+                if (preset != null && (preset.artworkUrl != feed.artworkUrl || preset.feedUrl != feed.feedUrl)) {
+                    changed = true
+                    feed.copy(artworkUrl = preset.artworkUrl, feedUrl = preset.feedUrl)
+                } else {
+                    feed
+                }
+            }
+            val existingIds = updated.map { it.id }.toSet()
+            val existingUrls = updated.map { it.feedUrl }.toSet()
             val newPresets = PRESET_FEEDS.filterNot { it.id in existingIds || it.feedUrl in existingUrls }
-            if (newPresets.isNotEmpty() || filtered.size != currentFeeds.size) {
-                saveSubscribedFeeds(filtered + newPresets)
+            if (newPresets.isNotEmpty() || changed) {
+                saveSubscribedFeeds(updated + newPresets)
                 if (getSelectedFeedId() == "preset_npr_up_first") {
-                    setSelectedFeedId(filtered.firstOrNull()?.id ?: PRESET_FEEDS.first().id)
+                    setSelectedFeedId(updated.firstOrNull()?.id ?: PRESET_FEEDS.first().id)
                 }
             }
         }
@@ -246,18 +257,24 @@ class PreferencesManager(context: Context) {
         prefs.edit().putString(KEY_SELECTED_FEED_ID, feedId).apply()
     }
 
+    private val progressCache = java.util.concurrent.ConcurrentHashMap<String, PlaybackProgress>()
+
     fun saveProgress(progress: PlaybackProgress) {
         if (progress.episodeId.isBlank()) return
+        progressCache[progress.episodeId] = progress
         val key = KEY_PROGRESS_PREFIX + progress.episodeId.hashCode()
         prefs.edit().putString(key, progress.toJson().toString()).apply()
     }
 
     fun getProgress(episodeId: String): PlaybackProgress? {
         if (episodeId.isBlank()) return null
+        progressCache[episodeId]?.let { return it }
         val key = KEY_PROGRESS_PREFIX + episodeId.hashCode()
         val jsonStr = prefs.getString(key, null) ?: return null
         return try {
-            PlaybackProgress.fromJson(JSONObject(jsonStr))
+            val p = PlaybackProgress.fromJson(JSONObject(jsonStr))
+            progressCache[episodeId] = p
+            p
         } catch (_: Exception) {
             null
         }

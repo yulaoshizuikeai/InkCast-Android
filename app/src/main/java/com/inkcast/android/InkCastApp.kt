@@ -5,8 +5,39 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import com.inkcast.android.data.local.PreferencesManager
+import com.inkcast.android.data.resolver.FeedResolverAgent
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Response
+import java.util.concurrent.TimeUnit
 
-class InkCastApp : Application() {
+class PodcastCoverInterceptor : Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val originalUrl = request.url.toString()
+        val thumbUrl = FeedResolverAgent.getInstance().toThumbnailUrl(originalUrl)
+        val settings = try {
+            PreferencesManager(InkCastApp.instance).getSettings()
+        } catch (_: Exception) {
+            null
+        }
+        val cfWorkerUrl = settings?.cfWorkerUrl.orEmpty()
+        val finalUrl = FeedResolverAgent.getInstance().applyProxyIfOverseas(thumbUrl, cfWorkerUrl)
+
+        val newRequest = request.newBuilder()
+            .url(finalUrl)
+            .header("User-Agent", "InkCast/2.0 (Android Native M3)")
+            .build()
+        return chain.proceed(newRequest)
+    }
+}
+
+class InkCastApp : Application(), ImageLoaderFactory {
 
     companion object {
         const val PLAYBACK_CHANNEL_ID = "inkcast_playback_channel"
@@ -19,6 +50,31 @@ class InkCastApp : Application() {
         super.onCreate()
         instance = this
         createNotificationChannel()
+    }
+
+    override fun newImageLoader(): ImageLoader {
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(18, TimeUnit.SECONDS)
+            .addInterceptor(PodcastCoverInterceptor())
+            .build()
+
+        return ImageLoader.Builder(this)
+            .okHttpClient(okHttpClient)
+            .crossfade(true)
+            .respectCacheHeaders(false) // Podcast covers rarely have proper cache-control headers
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25) // 25% of available heap
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("podcast_covers"))
+                    .maxSizeBytes(100L * 1024 * 1024) // 100MB disk cache
+                    .build()
+            }
+            .build()
     }
 
     private fun createNotificationChannel() {

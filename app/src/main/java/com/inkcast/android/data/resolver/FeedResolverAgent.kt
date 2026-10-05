@@ -283,7 +283,8 @@ class FeedResolverAgent(
         xmlContent: String,
         feedUrl: String,
         originalInput: String,
-        cfWorkerUrl: String
+        cfWorkerUrl: String,
+        maxEpisodes: Int = 20
     ): FeedResolveResult {
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = true
@@ -426,6 +427,10 @@ class FeedResolverAgent(
                                         imageUrl = epImage
                                     )
                                 )
+
+                                if (maxEpisodes > 0 && episodes.size >= maxEpisodes) {
+                                    break
+                                }
                             }
                         }
                         tagName.equals("channel", ignoreCase = true) -> {
