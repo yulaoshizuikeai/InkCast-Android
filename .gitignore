@@ -15,3 +15,6 @@
 local.properties
 .kotlin
 app/build
+/dist
+/artifacts
+*.apk
