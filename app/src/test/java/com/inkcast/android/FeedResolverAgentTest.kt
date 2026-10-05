@@ -154,4 +154,23 @@ class FeedResolverAgentTest {
         val cleaned = agent.cleanHtml(raw)
         assertEquals("Welcome to InkCast & enjoy <reading>! \"Quote's\"", cleaned)
     }
+
+    @Test
+    fun testToThumbnailUrl() {
+        // BBC ichef 3000x3000 -> 400x400
+        val bbcRaw = "http://ichef.bbci.co.uk/images/ic/3000x3000/p0m1wvw4.jpg"
+        assertEquals("http://ichef.bbci.co.uk/images/ic/400x400/p0m1wvw4.jpg", agent.toThumbnailUrl(bbcRaw))
+
+        // Apple mzstatic 600x600 -> 300x300
+        val appleRaw = "https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/mza_123.jpg/600x600bb.jpg"
+        assertEquals("https://is1-ssl.mzstatic.com/image/thumb/Podcasts125/mza_123.jpg/300x300bb.jpg", agent.toThumbnailUrl(appleRaw))
+
+        // NPR media server s=1400 -> s=400
+        val nprRaw = "https://media.npr.org/assets/img/2022/09/23/life-kit_tile.jpg?s=1400&c=66&f=jpg"
+        assertEquals("https://media.npr.org/assets/img/2022/09/23/life-kit_tile.jpg?s=400&c=66&f=jpg", agent.toThumbnailUrl(nprRaw))
+
+        // Simplecast 3000x3000 -> 400x400
+        val simplecastRaw = "https://image.simplecastcdn.com/images/uid1/uid2/3000x3000/cover.jpeg?aid=rss"
+        assertEquals("https://image.simplecastcdn.com/images/uid1/uid2/400x400/cover.jpeg?aid=rss", agent.toThumbnailUrl(simplecastRaw))
+    }
 }
